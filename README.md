@@ -56,6 +56,14 @@ Or via CLI:
 pi -e ./extensions/index.ts
 ```
 
+## Extensions
+
+| Name | Description | Category |
+|------|-------------|----------|
+| [@tomooshi/condensed-milk-pi](https://github.com/tomooshi/condensed-milk-pi) | Semantic token compression — filters noisy bash output and retroactively masks stale tool results in conversation history | Token Reduction |
+| [@sting8k/pi-vcc](https://www.npmjs.com/package/@sting8k/pi-vcc) | Algorithmic conversation compactor — transcript-preserving structured summaries, no LLM calls | Token Reduction |
+| [@tomooshi/caveman-milk-pi](https://www.npmjs.com/package/@tomooshi/caveman-milk-pi) | Injects caveman terseness rules into the system prompt — cache-safe, opt-in, plays nicely with condensed-milk and pi-vcc | Token Reduction |
+
 ## Migrating
 
 Move skills/commands/themes one by one into the appropriate directory. Test with `/reload` after each move.
