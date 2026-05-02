@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "Personal pi extensions, skills, commands, and themes",
+  "dependencies": {
+    "@tomooshi/condensed-milk-pi": "^1.9.0",
+    "@sting8k/pi-vcc": "^0.3.12",
+    "@tomooshi/caveman-milk-pi": "^0.2.0"
+  },
   "pi": {
     "extensions": [
       "./extensions/index.ts"
