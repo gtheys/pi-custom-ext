@@ -1,5 +1,5 @@
 ---
-name: generate-pr-description
+name: pr-description
 description: Generate comprehensive PR descriptions following repository templates. Use when the user wants to create or update a PR description. Trigger on mentions of "PR description", "describe PR", "generate PR", or "pr desc".
 ---
 
