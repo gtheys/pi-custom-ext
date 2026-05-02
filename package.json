@@ -12,6 +12,7 @@
     "extensions": [
       "./extensions/index.ts",
       "./extensions/review/review.ts",
+      "./extensions/pi-sem/index.ts",
       "./node_modules/@tomooshi/condensed-milk-pi/index.ts",
       "./node_modules/@sting8k/pi-vcc/index.ts",
       "./node_modules/@tomooshi/caveman-milk-pi/index.ts"

@@ -1,0 +1,12 @@
+{
+  "name": "pi-sem",
+  "private": true,
+  "optionalDependencies": {
+    "@ataraxy-labs/sem": "^0.3.21"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
