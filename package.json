@@ -13,6 +13,7 @@
       "./extensions/index.ts",
       "./extensions/review/review.ts",
       "./extensions/pi-sem/index.ts",
+      "./extensions/leader-key/index.ts",
       "./node_modules/@tomooshi/condensed-milk-pi/index.ts",
       "./node_modules/@sting8k/pi-vcc/index.ts",
       "./node_modules/@tomooshi/caveman-milk-pi/index.ts"
@@ -26,5 +27,10 @@
     "themes": [
       "./themes"
     ]
+  },
+  "devDependencies": {
+    "@mariozechner/pi-agent-core": "^0.72.0",
+    "@mariozechner/pi-coding-agent": "^0.72.0",
+    "@mariozechner/pi-tui": "^0.72.0"
   }
 }

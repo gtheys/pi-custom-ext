@@ -1,0 +1,44 @@
+[
+  {
+    "label": "Opus 4.6",
+    "provider": "anthropic",
+    "model": "claude-opus-4-6",
+    "thinking": "medium"
+  },
+  {
+    "label": "Sonnet 4.6",
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "thinking": "medium"
+  },
+  {
+    "label": "Opus 4.6",
+    "provider": "github-copilot",
+    "model": "claude-opus-4.6",
+    "thinking": "medium"
+  },
+  {
+    "label": "Sonnet 4.6",
+    "provider": "github-copilot",
+    "model": "claude-sonnet-4.6",
+    "thinking": "medium"
+  },
+  {
+    "label": "GPT-5.4",
+    "provider": "github-copilot",
+    "model": "gpt-5.4",
+    "thinking": "medium"
+  },
+  {
+    "label": "GPT-5.4",
+    "provider": "openai-codex",
+    "model": "gpt-5.4",
+    "thinking": "medium"
+  },
+  {
+    "label": "Opus 4.7",
+    "provider": "anthropic",
+    "model": "claude-opus-4-7",
+    "thinking": "medium"
+  }
+]
