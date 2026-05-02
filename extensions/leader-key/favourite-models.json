@@ -1,20 +1,20 @@
 [
   {
-    "label": "Opus 4.6",
-    "provider": "anthropic",
-    "model": "claude-opus-4-6",
+    "label": "GLM-5.1",
+    "provider": "zai",
+    "model": "GLM-5.1",
     "thinking": "medium"
   },
   {
-    "label": "Sonnet 4.6",
-    "provider": "anthropic",
-    "model": "claude-sonnet-4-6",
+    "label": "Kimi-K2.6",
+    "provider": "opencode-go",
+    "model": "Kimi-K2.6",
     "thinking": "medium"
   },
   {
-    "label": "Opus 4.6",
-    "provider": "github-copilot",
-    "model": "claude-opus-4.6",
+    "label": "Deepseek-v4-pro",
+    "provider": "opencode-go",
+    "model": "Deepseek-v4-pro",
     "thinking": "medium"
   },
   {
@@ -24,21 +24,15 @@
     "thinking": "medium"
   },
   {
-    "label": "GPT-5.4",
+    "label": "Opus 4.6",
     "provider": "github-copilot",
-    "model": "gpt-5.4",
+    "model": "claude-opus-4.7",
     "thinking": "medium"
   },
   {
-    "label": "GPT-5.4",
-    "provider": "openai-codex",
-    "model": "gpt-5.4",
-    "thinking": "medium"
-  },
-  {
-    "label": "Opus 4.7",
-    "provider": "anthropic",
-    "model": "claude-opus-4-7",
+    "label": "Haiku 4.5",
+    "provider": "github-copilot",
+    "model": "claude-haiku-4.5",
     "thinking": "medium"
   }
 ]
