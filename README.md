@@ -23,7 +23,7 @@ Which it never will be.
 
 Amen.
 
-# pi-custom-ext
+# pi-my-rifle-ext
 
 Personal pi extensions, skills, commands, and themes.
 
@@ -45,7 +45,7 @@ Test locally by adding to `settings.json`:
 ```json
 {
   "packages": [
-    "/home/geert/Code/personal/pi-custom-ext"
+    "/home/geert/Code/personal/pi-my-rifle-ext"
   ]
 }
 ```

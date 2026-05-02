@@ -1,12 +1,20 @@
 {
-  "name": "pi-custom-ext",
+  "name": "pi-my-rifle-ext",
   "version": "0.1.0",
   "private": true,
   "description": "Personal pi extensions, skills, commands, and themes",
   "pi": {
-    "extensions": ["./extensions/index.ts"],
-    "skills": ["./skills"],
-    "prompts": ["./prompts"],
-    "themes": ["./themes"]
+    "extensions": [
+      "./extensions/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ],
+    "themes": [
+      "./themes"
+    ]
   }
 }
