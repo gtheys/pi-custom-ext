@@ -18,15 +18,6 @@ When unsure about implementation details, ALWAYS ask the developer.
 
 ---
 
-## Build & Test Commands
-
-- **Build:** `yarn build`
-- **Lint:** `yarn lint`
-- **Test:** `yarn test`
-- **Run a single test file:** `yarn jest <path_to_test_file>`
-
----
-
 ## Code Style and Patterns
 
 ### Anchor comments
