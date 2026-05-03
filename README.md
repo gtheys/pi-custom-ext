@@ -58,11 +58,24 @@ pi -e ./extensions/index.ts
 
 ## Extensions
 
-| Name | Description | Category |
-|------|-------------|----------|
-| [@tomooshi/condensed-milk-pi](https://github.com/tomooshi/condensed-milk-pi) | Semantic token compression — filters noisy bash output and retroactively masks stale tool results in conversation history | Token Reduction |
-| [@sting8k/pi-vcc](https://www.npmjs.com/package/@sting8k/pi-vcc) | Algorithmic conversation compactor — transcript-preserving structured summaries, no LLM calls | Token Reduction |
-| [@tomooshi/caveman-milk-pi](https://www.npmjs.com/package/@tomooshi/caveman-milk-pi) | Injects caveman terseness rules into the system prompt — cache-safe, opt-in, plays nicely with condensed-milk and pi-vcc | Token Reduction |
+### Local Extensions
+
+| Extension | Description | Category |
+|-----------|-------------|----------|
+| `extensions/index.ts` | Startup bootstrap — symlinks `agents/AGENTS.md` to `~/.pi/agent/AGENTS.md` | Bootstrap |
+| `extensions/review` | `/review` command — code review for PRs, branches, uncommitted changes, or specific commits with semantic tool guidance | Code Review |
+| `extensions/tool-pills` | Colored pill badges for tool headers + Shiki-powered syntax-highlighted diffs for write/edit | UI Enhancement |
+| `extensions/pi-sem` | Semantic code analysis tools — entity-level diff, impact analysis, context lookup, and blame via `pi-sem` | Code Analysis |
+| `extensions/leader-key` | Ctrl+X floating command palette (Vim which-key / Emacs leader-key style) with grouped actions | UI Enhancement |
+
+### Published Packages
+
+| Package | Description | Category |
+|---------|-------------|----------|
+| [@tomooshi/condensed-milk-pi](https://github.com/tomooshi/condensed-milk-pi) | Semantic token compression — filters noisy bash output and retroactively masks stale tool results | Token Reduction |
+| [@sting8k/pi-vcc](https://www.npmjs.com/package/@sting8k/pi-vcc) | Algorithmic conversation compactor — transcript-preserving summaries, no LLM calls, searchable via `vcc_recall` | Token Reduction |
+| [@tomooshi/caveman-milk-pi](https://www.npmjs.com/package/@tomooshi/caveman-milk-pi) | Injects caveman terseness rules into system prompt — cache-safe, opt-in | Token Reduction |
+| [@gtheys/pi-per-commit-spend](https://www.npmjs.com/package/@gtheys/pi-per-commit-spend) | Tracks AI spend per git commit across sessions — calculates cost from token counts for subscription providers | Cost Tracking |
 
 ## Migrating
 
