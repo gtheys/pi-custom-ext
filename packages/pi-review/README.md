@@ -23,6 +23,8 @@ Agent-driven code review. Supports multiple targets:
 
 Modes: uncommitted changes, base branch diff, specific commit, pull request, folder diff, or custom instructions.
 
+When reviewing a pull request, if `tuicr` and `herdr` are on PATH and the session is running inside Herdr (`HERDR_ENV=1`), `/review` also opens a `tuicr pr <n>` TUI in a Herdr pane on the right, and asks the agent to add its findings into that session via `tuicr review add` (see the `tuicr` skill).
+
 ---
 
 ## /sonarqube

@@ -116,7 +116,13 @@ type ReviewTarget =
   | { type: 'baseBranch'; branch: string }
   | { type: 'commit'; sha: string; title?: string }
   | { type: 'custom'; instructions: string }
-  | { type: 'pullRequest'; prNumber: number; baseBranch: string; title: string }
+  | {
+      type: 'pullRequest'
+      prNumber: number
+      baseBranch: string
+      title: string
+      tuicrInstructions?: string
+    }
   | { type: 'folder'; paths: string[] }
 
 // Prompts (adapted from Codex)
@@ -429,6 +435,79 @@ async function checkoutPr(
   }
 
   return { success: true }
+}
+
+/**
+ * Check whether a binary is available on PATH.
+ */
+async function commandExists(pi: ExtensionAPI, bin: string): Promise<boolean> {
+  const { code } = await pi.exec('which', [bin])
+  return code === 0
+}
+
+/**
+ * Get "owner/repo" for the current repo from GitHub CLI.
+ */
+async function getRepoSlug(pi: ExtensionAPI): Promise<string | null> {
+  const { stdout, code } = await pi.exec('gh', [
+    'repo',
+    'view',
+    '--json',
+    'nameWithOwner',
+  ])
+  if (code !== 0) return null
+  try {
+    return JSON.parse(stdout).nameWithOwner ?? null
+  } catch {
+    return null
+  }
+}
+
+// AIDEV-NOTE: Fire-and-forget Herdr pane launch for PR review. Never blocks or
+// throws into the review flow - any missing piece (Herdr, tuicr, gh slug,
+// pane split) just skips the pane and the normal chat-based review proceeds.
+/**
+ * If tuicr + Herdr are available, open a tuicr review TUI for the PR in a
+ * Herdr pane on the right and return tuicr-skill instructions for the agent
+ * to work with that session.
+ */
+async function maybeOpenTuicrForPr(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  prNumber: number,
+): Promise<string | undefined> {
+  if (process.env.HERDR_ENV !== '1') return undefined
+  if (!(await commandExists(pi, 'tuicr'))) return undefined
+  if (!(await commandExists(pi, 'herdr'))) return undefined
+
+  const repoSlug = await getRepoSlug(pi)
+  if (!repoSlug) return undefined
+
+  const split = await pi.exec('herdr', [
+    'pane',
+    'split',
+    '--current',
+    '--direction',
+    'right',
+    '--cwd',
+    ctx.cwd,
+    '--focus',
+  ])
+  if (split.code !== 0) return undefined
+
+  let paneId: string | undefined
+  try {
+    paneId = JSON.parse(split.stdout)?.result?.pane?.pane_id
+  } catch {
+    paneId = undefined
+  }
+  if (!paneId) return undefined
+
+  await pi.exec('herdr', ['pane', 'run', paneId, `tuicr pr ${prNumber}`])
+  ctx.ui.notify(`Opened tuicr for PR #${prNumber} in a Herdr pane`, 'info')
+
+  const sessionSlug = `gh:${repoSlug}/pr/${prNumber}`
+  return `\n\nA tuicr review TUI is open in a Herdr pane for this PR (repo \`${repoSlug}\`, session \`${sessionSlug}\`). Follow the tuicr skill to work with that session: add each finding with \`tuicr review add --repo ${repoSlug} --session ${sessionSlug} --target-file <path> --line <n> --side new --type issue --username "pi-review" "<finding>"\`.`
 }
 
 /**
@@ -1027,11 +1106,14 @@ export default function reviewExtension(pi: ExtensionAPI) {
 
     ctx.ui.notify(`Checked out PR #${prNumber} (${prInfo.headBranch})`, 'info')
 
+    const tuicrInstructions = await maybeOpenTuicrForPr(pi, ctx, prNumber)
+
     return {
       type: 'pullRequest',
       prNumber,
       baseBranch: prInfo.baseBranch,
       title: prInfo.title,
+      tuicrInstructions,
     }
   }
 
@@ -1134,6 +1216,10 @@ export default function reviewExtension(pi: ExtensionAPI) {
 
     if (projectGuidelines) {
       fullPrompt += `\n\nThis project has additional instructions for code reviews:\n\n${projectGuidelines}`
+    }
+
+    if (target.type === 'pullRequest' && target.tuicrInstructions) {
+      fullPrompt += target.tuicrInstructions
     }
 
     let modeHint: string
@@ -1248,11 +1334,14 @@ export default function reviewExtension(pi: ExtensionAPI) {
 
     ctx.ui.notify(`Checked out PR #${prNumber} (${prInfo.headBranch})`, 'info')
 
+    const tuicrInstructions = await maybeOpenTuicrForPr(pi, ctx, prNumber)
+
     return {
       type: 'pullRequest',
       prNumber,
       baseBranch: prInfo.baseBranch,
       title: prInfo.title,
+      tuicrInstructions,
     }
   }
 
