@@ -60,7 +60,7 @@ Create a template so I know what format to follow.
 
 Read the template carefully to understand all sections and requirements.
 
-### 2. Identify the PR to Describe
+### 2. Identify or Create the PR
 
 - Check if the current branch has an associated PR:
 
@@ -68,13 +68,25 @@ Read the template carefully to understand all sections and requirements.
   gh pr view --json url,number,title,state 2>/dev/null
   ```
 
-- If no PR exists for the current branch, or if on main/master, list open PRs:
+- **If a PR exists:** use its number for the rest of the skill.
 
-  ```bash
-  gh pr list --limit 10 --json number,title,headRefName,author
-  ```
+- **If no PR exists** (and not on main/master): **create one** — do not list
+  other PRs or ask the user. The description generated in Step 7 will replace
+  the placeholder body in Step 9.
 
-- Ask the user which PR they want to describe
+  1. Determine the base branch from the template's stated base (SalaryHero repos
+     use `develop`). If the template doesn't name one, use the repo's default
+     branch (`gh repo view --json defaultBranchRef`).
+  2. Create the PR with a placeholder body:
+
+     ```bash
+     gh pr create --base <base> --body "Pending description"
+     ```
+
+     If the branch isn't pushed yet, `gh pr create` pushes it first. Capture
+     the PR number from the output.
+
+  3. Use the new PR number in all subsequent steps.
 
 ### 3. Check for Existing Description
 
