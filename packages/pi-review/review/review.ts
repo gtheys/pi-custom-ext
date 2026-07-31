@@ -507,7 +507,9 @@ async function maybeOpenTuicrForPr(
   ctx.ui.notify(`Opened tuicr for PR #${prNumber} in a Herdr pane`, 'info')
 
   const sessionSlug = `gh:${repoSlug}/pr/${prNumber}`
-  return `\n\nA tuicr review TUI is open in a Herdr pane for this PR (repo \`${repoSlug}\`, session \`${sessionSlug}\`). Follow the tuicr skill to work with that session: add each finding with \`tuicr review add --repo ${repoSlug} --session ${sessionSlug} --target-file <path> --line <n> --side new --type issue --username "pi-review" "<finding>"\`.`
+  return `\n\nA tuicr review TUI is open in a Herdr pane for this PR (repo \`${repoSlug}\`, session \`${sessionSlug}\`). Follow the tuicr skill to work with that session, adding each finding with \`tuicr review add\`.
+
+Before choosing \`--type\`, read the \`comment_types\` list from the tuicr config (\`~/.config/tuicr/config.toml\`, or \`$XDG_CONFIG_HOME/tuicr/config.toml\` if set) and match each finding to the \`id\` whose \`definition\` fits best - do not default to \`issue\` for everything. Typical mapping: must-fix-before-merge -> \`blocker\`, security/data-integrity -> \`security\`, should-fix-but-not-blocking -> \`issue\`, low-priority/optional tweak -> \`nit\` or \`suggestion\`, needs an answer before you can judge it -> \`question\`, missing/weak tests -> \`test\`, missing/wrong types -> \`types\`, missing/wrong error handling -> \`errors\`, unrequested change or leftover debug code -> \`scope\`, something worth calling out positively -> \`praise\`, and explicit delete/move/extract/simplify asks -> the matching id. Fall back to \`--type issue\` only if the config has no \`comment_types\` or none fit. Example: \`tuicr review add --repo ${repoSlug} --session ${sessionSlug} --target-file <path> --line <n> --side new --type <matched-type> --username "pi-review" "<finding>"\`.`
 }
 
 /**
