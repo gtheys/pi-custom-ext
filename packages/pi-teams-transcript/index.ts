@@ -350,6 +350,16 @@ async function listTranscripts(userId: string, meetingId: string) {
   return res.json()
 }
 
+// AIDEV-NOTE: a tenant admin can disable "speaker-attributed transcript
+// content" (Teams admin policy) — Graph then 403s $format=text/vtt for any
+// transcript generated while that policy was off (SpeakerAttributionNotAllowed),
+// even after the policy is flipped back on, since attribution is baked in at
+// recording time. Graph's own error tells us the fallback content-type; retry
+// with it once so sync still gets a transcript instead of erroring the whole
+// meeting. Fallback body has no <v Name> tags (parseVttCues handles that).
+const SPEAKER_ATTRIBUTION_FALLBACK_ACCEPT =
+  'application/vnd.microsoft.graph.transcript+text'
+
 async function getTranscriptContent(
   userId: string,
   meetingId: string,
@@ -357,11 +367,19 @@ async function getTranscriptContent(
   format: string,
 ) {
   const guid = await resolveUserGuid(userId)
-  const res = await graphFetch(
-    `${GRAPH_BASE}/users/${encodeURIComponent(guid)}/onlineMeetings/${encodeURIComponent(meetingId)}/transcripts/${encodeURIComponent(transcriptId)}/content?$format=${encodeURIComponent(format)}`,
-    format,
-  )
-  return res.text()
+  const base = `${GRAPH_BASE}/users/${encodeURIComponent(guid)}/onlineMeetings/${encodeURIComponent(meetingId)}/transcripts/${encodeURIComponent(transcriptId)}/content`
+  try {
+    const res = await graphFetch(
+      `${base}?$format=${encodeURIComponent(format)}`,
+      format,
+    )
+    return res.text()
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (!msg.includes('SpeakerAttributionNotAllowed')) throw error
+    const res = await graphFetch(base, SPEAKER_ATTRIBUTION_FALLBACK_ACCEPT)
+    return res.text()
+  }
 }
 
 // AIDEV-NOTE: one aligned line per meeting instead of a markdown table —
@@ -372,6 +390,8 @@ const STATUS_ICON: Record<string, string> = {
   downloaded: '\u2713',
   'already-synced': '\u2713',
   'no-transcript': '\u00b7',
+  'not-started': '\u00b7',
+  'not-organizer': '\u00b7',
   cancelled: '\u2298',
   error: '\u2717',
 }
@@ -412,6 +432,8 @@ const STATUS_THEME_COLOR: Record<
   downloaded: 'success',
   'already-synced': 'success',
   'no-transcript': 'dim',
+  'not-started': 'dim',
+  'not-organizer': 'dim',
   cancelled: 'warning',
   error: 'error',
 }
@@ -477,6 +499,8 @@ async function syncTranscripts(opts: {
       | 'downloaded'
       | 'already-synced'
       | 'no-transcript'
+      | 'not-started'
+      | 'not-organizer'
       | 'cancelled'
       | 'error'
   }>
@@ -485,6 +509,7 @@ async function syncTranscripts(opts: {
   const log = opts.onProgress ?? (() => {})
   await fs.mkdir(outDir, { recursive: true })
 
+  const dayWindow = dayBounds(day, timeZone)
   const meetings = await listMeetingsForDay(userId, day, timeZone)
   const downloaded: string[] = []
   const skippedExisting: string[] = []
@@ -498,6 +523,8 @@ async function syncTranscripts(opts: {
       | 'downloaded'
       | 'already-synced'
       | 'no-transcript'
+      | 'not-started'
+      | 'not-organizer'
       | 'cancelled'
       | 'error'
   }> = []
@@ -514,12 +541,38 @@ async function syncTranscripts(opts: {
       report.push({ subject, start, meetingId: null, status: 'cancelled' })
       continue
     }
+    // AIDEV-NOTE: a recurring meeting's joinUrl resolves to ONE onlineMeeting
+    // object shared by the whole series (Graph doesn't scope it per
+    // occurrence) — its /transcripts collection can already hold a transcript
+    // from a *previous* day before today's occurrence has even started.
+    // Never call Graph for an occurrence that hasn't happened yet; there is
+    // no way it has a real transcript of its own.
+    const hasOffset = /[Zz]$|[+-]\d{2}:\d{2}$/.test(start)
+    const startMs = Date.parse(hasOffset ? start : `${start}Z`)
+    if (!Number.isNaN(startMs) && startMs > Date.now()) {
+      report.push({ subject, start, meetingId: null, status: 'not-started' })
+      continue
+    }
     try {
       const meetingId = await resolveMeetingId(userId, meeting.joinUrl)
       const data = (await listTranscripts(userId, meetingId)) as {
-        value?: Array<{ id: string }>
+        value?: Array<{ id: string; createdDateTime?: string }>
       }
-      const transcripts = data.value || []
+      // AIDEV-NOTE: a recurring series' /transcripts collection holds every
+      // occurrence's transcript ever generated, not just today's — without
+      // this filter every sync run re-downloads the whole history under
+      // *today's* filename (confirmed: same transcriptId on disk 3x under 3
+      // different dates). Keep only transcripts actually created within the
+      // day being synced; a transcript with no createdDateTime falls back to
+      // the old (permissive) behavior rather than being dropped outright.
+      const transcripts = (data.value || []).filter((t) => {
+        const createdMs = Date.parse(t.createdDateTime || '')
+        if (Number.isNaN(createdMs)) return true
+        return (
+          createdMs >= dayWindow.start.getTime() &&
+          createdMs < dayWindow.end.getTime()
+        )
+      })
       if (transcripts.length === 0) {
         skippedNoTranscript.push(`${baseName} (no transcript)`)
         report.push({ subject, start, meetingId, status: 'no-transcript' })
@@ -578,6 +631,19 @@ async function syncTranscripts(opts: {
       })
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
+      // AIDEV-NOTE: "3003: User does not have access to lookup meeting" means
+      // the configured userId isn't that meeting's actual organizer (app
+      // access policy is granted per-organizer) — expected for meetings you
+      // only attend, not an actionable error worth surfacing in red.
+      if (msg.includes('3003')) {
+        report.push({
+          subject,
+          start,
+          meetingId: null,
+          status: 'not-organizer',
+        })
+        continue
+      }
       errors.push(`${baseName}: ${msg.slice(0, 200)}`)
       report.push({ subject, start, meetingId: null, status: 'error' })
     }
@@ -656,6 +722,15 @@ function parseVttCues(vttContent: string): TranscriptCue[] {
           time,
           text: vMatch[2].replace(/\s+/g, ' ').trim(),
         })
+      } else if (joined.trim()) {
+        // AIDEV-NOTE: speaker-attribution-disabled fallback content has no <v
+        // Name> tag at all — keep the cue (real transcript text) with an empty
+        // speaker rather than dropping it silently.
+        cues.push({
+          speaker: '',
+          time,
+          text: joined.replace(/\s+/g, ' ').trim(),
+        })
       }
       i = j
     } else {
@@ -669,10 +744,9 @@ function attendeesFromCues(cues: TranscriptCue[]): string[] {
   const seen = new Set<string>()
   const result: string[] = []
   for (const c of cues) {
-    if (!seen.has(c.speaker)) {
-      seen.add(c.speaker)
-      result.push(c.speaker)
-    }
+    if (!c.speaker || seen.has(c.speaker)) continue
+    seen.add(c.speaker)
+    result.push(c.speaker)
   }
   return result
 }
@@ -845,9 +919,13 @@ function buildTranscriptStub(
     '## Transcript',
     '',
     cues
-      .map(
-        (c) =>
-          `${attendeeLink(meta.attendees, c.speaker)} \`${c.time}\` ${c.text}`,
+      .map((c) =>
+        // AIDEV-NOTE: no speaker (tenant's speaker-attribution policy was off
+        // when this transcript was recorded) — print the line without a
+        // wikilink instead of linking to a made-up/empty name.
+        c.speaker
+          ? `${attendeeLink(meta.attendees, c.speaker)} \`${c.time}\` ${c.text}`
+          : `\`${c.time}\` ${c.text}`,
       )
       .join('\n'),
   ].join('\n')

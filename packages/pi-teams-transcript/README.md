@@ -146,6 +146,7 @@ If a `.vtt` has no `.md` at all (dropped in manually, or synced before this exis
 | `403 forbidden: "No application access policy found for this app ... on the user"` | Teams Application Access Policy not granted for that organizer, or not yet propagated | Run `Grant-CsApplicationAccessPolicy` for that organizer (see above), wait 15-30 min |
 | `403 forbidden: "3003: User does not have access to lookup meeting"` | Policy is granted, but only for a *different* organizer than the one in this joinUrl | Grant the policy for that meeting's actual organizer too |
 | `@odata.count: 0` from `action=list` | No transcript exists for that meeting (transcription wasn't enabled/recorded) | Nothing to fetch — try a different meeting |
+| `403 Forbidden: "Speaker-attributed transcript content is disabled for this tenant"` | A tenant admin toggled the Teams meeting policy for speaker-attributed transcripts off, then back on — attribution is baked in at recording time, so any transcript generated while it was off still 403s on `$format=text/vtt` even after the policy is re-enabled | Handled automatically: the tool retries with the vendor content-type Graph's own error names (`application/vnd.microsoft.graph.transcript+text`), which has no per-speaker `<v Name>` tags. Those cues render without an Obsidian wikilink (just `` `time` text ``) since there's no speaker to link. Meetings recorded *after* the policy was turned back on keep full speaker attribution as normal |
 
 ## Reference
 
