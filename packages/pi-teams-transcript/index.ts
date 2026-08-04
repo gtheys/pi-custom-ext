@@ -364,13 +364,18 @@ async function listTranscripts(userId: string, meetingId: string) {
   return res.json()
 }
 
-// AIDEV-NOTE: a tenant admin can disable "speaker-attributed transcript
-// content" (Teams admin policy) — Graph then 403s $format=text/vtt for any
-// transcript generated while that policy was off (SpeakerAttributionNotAllowed),
-// even after the policy is flipped back on, since attribution is baked in at
-// recording time. Graph's own error tells us the fallback content-type; retry
-// with it once so sync still gets a transcript instead of erroring the whole
-// meeting. Fallback body has no <v Name> tags (parseVttCues handles that).
+// AIDEV-NOTE: "Speaker attribution" is one of two independent tenant admin
+// settings gating this API (the other, "Graph API access to transcripts",
+// blocks everything with GraphAccessToTranscriptsDisabled and has no
+// workaround). Both are configured via Teams Admin Center or
+// Set-CsTeamsMeetingConfiguration — see Microsoft Graph's callTranscript-get
+// docs, "Tenant administrator controls for transcript access". Verified live:
+// this is evaluated per-request against the *current* tenant setting, not
+// baked in at recording time — toggling it back on should make text/vtt work
+// again for old transcripts too (allow for propagation delay). Graph's own
+// error names the fallback content-type; retry with it once so sync still
+// gets a transcript instead of erroring the whole meeting. Fallback body has
+// no <v Name> tags (parseVttCues handles that).
 const SPEAKER_ATTRIBUTION_FALLBACK_ACCEPT =
   'application/vnd.microsoft.graph.transcript+text'
 

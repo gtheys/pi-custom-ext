@@ -152,9 +152,27 @@ If a `.vtt` in `outDir/vtt/` has no `.md` at all in `outDir` (dropped in manuall
 | `403 forbidden: "No application access policy found for this app ... on the user"` | Teams Application Access Policy not granted for that organizer, or not yet propagated | Run `Grant-CsApplicationAccessPolicy` for that organizer (see above), wait 15-30 min |
 | `403 forbidden: "3003: User does not have access to lookup meeting"` | Policy is granted, but only for a *different* organizer than the one in this joinUrl | Grant the policy for that meeting's actual organizer too |
 | `@odata.count: 0` from `action=list` | No transcript exists for that meeting (transcription wasn't enabled/recorded) | Nothing to fetch — try a different meeting |
-| `403 Forbidden: "Speaker-attributed transcript content is disabled for this tenant"` | A tenant admin toggled the Teams meeting policy for speaker-attributed transcripts off, then back on — attribution is baked in at recording time, so any transcript generated while it was off still 403s on `$format=text/vtt` even after the policy is re-enabled | Handled automatically: the tool retries with the vendor content-type Graph's own error names (`application/vnd.microsoft.graph.transcript+text`), which has no per-speaker `<v Name>` tags. Those cues render without an Obsidian wikilink (just `` `time` text ``) since there's no speaker to link. Meetings recorded *after* the policy was turned back on keep full speaker attribution as normal |
+| `403 Forbidden: "Speaker-attributed transcript content is disabled for this tenant"` (`SpeakerAttributionNotAllowed`) | Tenant admin turned off the **Speaker attribution** meeting setting | Handled automatically: the tool retries with the vendor content-type Graph's own error names (`application/vnd.microsoft.graph.transcript+text`), which has no per-speaker `<v Name>` tags. Those cues render without an Obsidian wikilink (just `` `time` text ``) since there's no speaker to link. See below to have the admin turn it back on |
+| `403 Forbidden: "Graph API access to transcripts is disabled for this tenant"` (`GraphAccessToTranscriptsDisabled`) | Tenant admin turned off the **Graph API access to transcripts** setting — the master switch, separate from speaker attribution | No workaround, not even metadata (`action=list`) works. Admin must re-enable it (same two settings below) |
+
+### Tenant admin controls for transcript access (as MS admin)
+
+Two *independent* Teams tenant settings gate this whole API, both configured via Teams Admin Center or the `Set-CsTeamsMeetingConfiguration` PowerShell cmdlet (verified against [Microsoft's own docs](https://learn.microsoft.com/en-us/graph/api/calltranscript-get?view=graph-rest-1.0), not the Teams client UI — what a meeting participant sees in Teams is governed separately and does **not** reflect what this API can fetch):
+
+1. **Graph API access to transcripts** — master switch. Off = every transcript request 403s (`GraphAccessToTranscriptsDisabled`), no format-level workaround.
+2. **Speaker attribution** — narrower. Off = only the attributed format (`text/vtt`) 403s (`SpeakerAttributionNotAllowed`); the unattributed format (`application/vnd.microsoft.graph.transcript+text`) still works, which is exactly the fallback this tool already uses automatically.
+
+```powershell
+pwsh
+Connect-MicrosoftTeams   # or -UseDeviceAuthentication
+Get-CsTeamsMeetingConfiguration | Select-Object *SpeakerAttribution*, *Transcript*
+Set-CsTeamsMeetingConfiguration -<ExactParamFromAbove> $true
+```
+
+This is evaluated live against the *current* setting on every request, not baked in at recording time — flipping it back on should restore `text/vtt` for old transcripts too, not just new ones (allow the usual 15-30 min propagation delay, then re-verify with a real fetch, not the Teams client display).
 
 ## Reference
 
 - [Microsoft Graph `callTranscript` resource](https://learn.microsoft.com/en-us/graph/api/resources/calltranscript?view=graph-rest-1.0)
+- [Get callTranscript — tenant administrator controls for transcript access](https://learn.microsoft.com/en-us/graph/api/calltranscript-get?view=graph-rest-1.0)
 - [Application access policy for Teams meeting APIs](https://learn.microsoft.com/en-us/graph/cloud-communication-online-meeting-application-access-policy)
