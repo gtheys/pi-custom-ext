@@ -1053,11 +1053,11 @@ const SUMMARY_SECTIONS_TEMPLATE = `## Summary
 
 ## Decisions
 
-- [x] <decision made>
+- <decision made>
 
 ## Action Items
 
-- [x] [[<Owner>]]: <task> (<status if mentioned>)
+- [ ] [[<Owner>]]: <task> (<status if mentioned>)
 
 ## Open Questions
 
@@ -1075,8 +1075,9 @@ const SUMMARY_FORMAT_GUIDANCE =
   'sections between the header and "## Transcript" (omit a section entirely if it has ' +
   'nothing real to put in it):\n\n' +
   `${SUMMARY_SECTIONS_TEMPLATE}\n` +
-  'Decisions and Action Items both use `- [x]` (already happened/assigned, not a live todo ' +
-  'list). Open Questions and Commitments are plain bullets, no checkboxes. Render every ' +
+  'Action Items use `- [ ]` (open todo, not done yet — never `- [x]`, even if the ' +
+  'transcript says work already started). Decisions, Open Questions, and Commitments are ' +
+  'plain bullets, no checkboxes. Render every ' +
   'person name as an Obsidian wikilink, matching the speaker links already in the Transcript ' +
   'section. Attendee names often embed a bracketed nickname — `Lam [Liam] Pham` becomes full ' +
   'name `Lam Pham` with nickname `Liam`, rendered `[[Lam Pham|Liam]]`; apply that exact form ' +
