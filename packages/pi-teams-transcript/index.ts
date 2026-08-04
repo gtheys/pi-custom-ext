@@ -38,6 +38,12 @@ const TeamsTranscriptConfigSchema = Type.Object({
         "IANA timezone (e.g. 'Asia/Bangkok') used for day boundaries (today/yesterday) and displayed meeting times in the sync report. Defaults to the system timezone.",
     }),
   ),
+  weekly: Type.Optional(
+    Type.String({
+      description:
+        'Directory to write /teams-transcript-weekly reports to, one file per ISO week (e.g. 2026-w32.md). Relative paths resolve from cwd. Required for that command — no default.',
+    }),
+  ),
 })
 
 const GLOBAL_CONFIG_PATH = path.join(
@@ -50,9 +56,12 @@ function projectConfigPath(cwd: string): string {
   return path.join(cwd, CONFIG_DIR_NAME, 'pi-teams-transcript', 'config.json')
 }
 
-async function readConfigFile(
-  file: string,
-): Promise<{ outDir?: string; userId?: string; timezone?: string }> {
+async function readConfigFile(file: string): Promise<{
+  outDir?: string
+  userId?: string
+  timezone?: string
+  weekly?: string
+}> {
   try {
     const raw = await fs.readFile(file, 'utf8')
     const parsed: unknown = JSON.parse(raw)
@@ -73,6 +82,14 @@ async function resolveConfiguredOutDir(
   const global = await readConfigFile(GLOBAL_CONFIG_PATH)
   const project = await readConfigFile(projectConfigPath(cwd))
   return project.outDir || global.outDir
+}
+
+async function resolveConfiguredWeeklyDir(
+  cwd: string,
+): Promise<string | undefined> {
+  const global = await readConfigFile(GLOBAL_CONFIG_PATH)
+  const project = await readConfigFile(projectConfigPath(cwd))
+  return project.weekly || global.weekly
 }
 
 // AIDEV-NOTE: precedence is explicit CLI arg > TEAMS_USER_ID env var >
@@ -260,6 +277,90 @@ function dayBounds(
   const start = new Date(guess.getTime() - offsetMin * 60_000)
   const end = new Date(start.getTime() + 86_400_000)
   return { start, end }
+}
+
+// AIDEV-NOTE: standard ISO 8601 week number algorithm — shifts to the
+// Thursday of the same week, since ISO week-year is defined by which
+// calendar year contains that week's Thursday (handles the Dec/Jan boundary
+// correctly, e.g. Dec 31 2029 is ISO week 1 of 2030).
+function isoWeek(date: Date): { isoYear: number; isoWeek: number } {
+  const d = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+  )
+  const dayNum = d.getUTCDay() || 7 // Mon=1..Sun=7
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum)
+  const isoYear = d.getUTCFullYear()
+  const yearStart = new Date(Date.UTC(isoYear, 0, 1))
+  const isoWeekNum = Math.ceil(
+    ((d.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7,
+  )
+  return { isoYear, isoWeek: isoWeekNum }
+}
+
+// AIDEV-NOTE: work week is Mon-Fri only (no weekend meetings expected). We
+// only ever report on an already-*finished* work week: while "today" (in
+// timeZone) still falls inside the current Mon-Fri span, that week isn't
+// over yet, so target the previous week instead. Once today is Sat/Sun, the
+// week that just ended becomes the target — this is also why skip-if-exists
+// (see the command handler) is safe to be permanent: a target week is never
+// touched again once its report exists, and we never re-target a week still
+// in progress.
+function targetWeekBounds(timeZone: string): {
+  monday: string // YYYY-MM-DD
+  friday: string
+  weekLabel: string // '2026-w32'
+} {
+  const now = new Date()
+  const ymd = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+  const [y, m, d] = ymd.split('-').map(Number)
+  const today = new Date(Date.UTC(y, m - 1, d))
+  const isoDow = today.getUTCDay() || 7 // Mon=1..Sun=7
+  const thisMonday = new Date(today.getTime() - (isoDow - 1) * 86_400_000)
+  const currentWeekFinished = isoDow >= 6 // Sat or Sun
+  const targetMonday = currentWeekFinished
+    ? thisMonday
+    : new Date(thisMonday.getTime() - 7 * 86_400_000)
+  const targetFriday = new Date(targetMonday.getTime() + 4 * 86_400_000)
+  const { isoYear, isoWeek: weekNum } = isoWeek(targetMonday)
+  return {
+    monday: targetMonday.toISOString().slice(0, 10),
+    friday: targetFriday.toISOString().slice(0, 10),
+    weekLabel: `${isoYear}-w${String(weekNum).padStart(2, '0')}`,
+  }
+}
+
+// AIDEV-NOTE: pure filesystem scan, no Graph call needed — .md notes live at
+// the top level of outDir (see vttSubdir), frontmatter date is always a
+// plain `date: YYYY-MM-DD` scalar (see buildTranscriptStub), so string
+// comparison against the YYYY-MM-DD bounds sorts correctly.
+async function findWeekMeetings(
+  outDir: string,
+  monday: string,
+  friday: string,
+): Promise<Array<{ path: string; hasSummary: boolean }>> {
+  const entries = await fs.readdir(outDir).catch(() => [] as string[])
+  const results: Array<{ path: string; hasSummary: boolean }> = []
+  for (const entry of entries) {
+    if (!entry.endsWith('.md')) continue
+    const filePath = path.join(outDir, entry)
+    const content = await fs.readFile(filePath, 'utf8').catch(() => null)
+    if (content === null) continue
+    const dateMatch = content.match(/^date:\s*(\d{4}-\d{2}-\d{2})/m)
+    if (!dateMatch) continue
+    const date = dateMatch[1]
+    if (date < monday || date > friday) continue
+    results.push({
+      path: filePath,
+      hasSummary: /^## Summary\b/m.test(content),
+    })
+  }
+  results.sort((a, b) => a.path.localeCompare(b.path))
+  return results
 }
 
 // AIDEV-NOTE: under app-only auth, /calendarView strips `onlineMeeting` off
@@ -747,6 +848,15 @@ async function resolveTranscriptsDir(
     : path.resolve(cwd, 'teams-transcripts')
 }
 
+// AIDEV-NOTE: unlike outDir, weekly has no sane default — it's a deliberate
+// separate folder the user opts into, so return undefined (not a fallback
+// path) when unconfigured and let the command tell the user to set it.
+async function resolveWeeklyDir(cwd: string): Promise<string | undefined> {
+  const configured = await resolveConfiguredWeeklyDir(cwd)
+  if (!configured) return undefined
+  return path.resolve(cwd, configured)
+}
+
 // AIDEV-NOTE: VTT → transcript-line conversion is pure parsing, no LLM
 // needed, so it happens in code (both at sync time with fresh Graph
 // metadata, and lazily here for a manually-dropped .vtt with none).
@@ -1062,7 +1172,7 @@ const SUMMARY_SECTIONS_TEMPLATE = `## Summary
 
 ## Action Items
 
-- [ ] [[<Owner>]]: <task> (<status if mentioned>)
+- [ ] [[<Owner>]]: <task> (due <YYYY-MM-DD>, if a due date was mentioned)
 
 ## Open Questions
 
@@ -1090,7 +1200,56 @@ const SUMMARY_FORMAT_GUIDANCE =
   'a bracket, use the full attendee name from the **Attendees** header and alias a short mention ' +
   '(`[[Geert Theys|Geert]]` for "Geert", `[[Geert Theys]]` for the full name). Base every ' +
   'bullet only on what is actually said in the Transcript section already in the file; never ' +
-  'invent decisions, owners, or action items not present.'
+  'invent decisions, owners, or action items not present. Only add a `(due YYYY-MM-DD)` to an ' +
+  'Action Item if the transcript explicitly states a due date or deadline — convert a relative ' +
+  'date ("by Friday", "end of next week") to an absolute YYYY-MM-DD using the note\'s own ' +
+  '**Date** as the reference point; omit the due-date parenthetical entirely if none was stated, ' +
+  'never invent one.'
+
+// AIDEV-NOTE: adapted from a different tool's weekly-synthesis skill spec —
+// kept the shape (themes/decision-arcs/action-audit/forward-brief/closing),
+// dropped everything needing that tool's CLI (search/actions/people/
+// commitments), its prep/debrief files, and its presentation-focus
+// preference-learning hooks, none of which exist here. Commitments come
+// from the '## Commitments' section already in each note instead of a
+// separate relationship-intelligence system. Fixed decisions-first
+// ordering, no persisted preference (ask if that's wanted later).
+const WEEKLY_FORMAT_GUIDANCE =
+  'Some of these files may still be missing their summary sections — fill those in first ' +
+  'using this format:\n\n' +
+  `${SUMMARY_FORMAT_GUIDANCE}\n\n` +
+  "Then write a weekly synthesis to the exact path given below (create it, don't overwrite " +
+  'anything else). Structure, in this order:\n\n' +
+  "## This Week's Themes\n\n" +
+  "Identify the 3-5 dominant themes across this week's meetings. A theme is a topic that " +
+  'appeared in 2+ meetings. For each: which meetings discussed it, how the conversation ' +
+  'evolved, whether resolved. Example:\n\n' +
+  '### 1. Pricing (3 meetings)\n- Mon: proposed $599 baseline\n- Wed: pushback to annual ' +
+  'billing\n- Fri: agreed on monthly billing experiment\n- Status: RESOLVED\n\n' +
+  '## Decision Arcs\n\n' +
+  'For every decision found this week, check whether the same topic was decided differently ' +
+  'in the last 30 days — read the other .md notes in the same directory (not just this ' +
+  "week's) to find prior mentions. Classify each: STABLE (held across 2+ mentions), " +
+  'VOLATILE (changed 2+ times in 14 days), CONFLICTING (two active contradictory decisions ' +
+  '— flag prominently with ⚠️), NEW (first time decided). Present as a table: Decision | ' +
+  'Status | Arc | Last Meeting.\n\n' +
+  '## Action Item Audit\n\n' +
+  "Scan this week's and recent notes' Action Items. Categorize: Completed this week, " +
+  'Still open (on track), Overdue (has a `(due YYYY-MM-DD)` in the past, still unchecked — ' +
+  'flag prominently), Assigned to others. An item with no due date is never "overdue", just ' +
+  '"open" — don\'t guess a date.\n\n' +
+  '## Commitments\n\n' +
+  'Summarize the "## Commitments" section across this week\'s notes — who committed to what.\n\n' +
+  '## Attention Monday\n\n' +
+  'What deserves attention next Monday, prioritized: CONFLICTING decisions > overdue action ' +
+  'items > open commitments. State facts plainly ("overdue since Friday"), not naggy tone.\n\n' +
+  '## Closing\n\n' +
+  'Three short beats: (1) a reflection on a pattern from the week, (2) the single most ' +
+  "important thing to do Monday, (3) nothing else — no tool nudges for tools that don't " +
+  'exist here.\n\n' +
+  "Guardrails: base everything only on what's actually written in the notes, never invent a " +
+  'decision, owner, theme, or date. If a category has nothing real, omit that subsection ' +
+  'rather than padding it.'
 
 export default function (pi: ExtensionAPI) {
   // Scaffold config.schema.json next to this file when missing.
@@ -1445,6 +1604,64 @@ export default function (pi: ExtensionAPI) {
       // own tools (mirrors the pendingSummaries tool action's approach).
       pi.sendUserMessage(
         `Summarize these Teams transcripts. ${SUMMARY_FORMAT_GUIDANCE}\n\nFiles:\n${result.pending.map((p) => `- ${p}`).join('\n')}`,
+      )
+    },
+  })
+
+  pi.registerCommand('teams-transcript-weekly', {
+    description:
+      "Synthesize the most recently *finished* Mon-Fri work week's meeting notes into a weekly report. Usage: /teams-transcript-weekly",
+    handler: async (_args, ctx) => {
+      const weeklyDir = await resolveWeeklyDir(ctx.cwd)
+      if (!weeklyDir) {
+        ctx.ui.notify(
+          'No "weekly" directory configured. Set "weekly" in pi-teams-transcript/config.json (global or project) to a path for weekly reports.',
+          'warning',
+        )
+        return
+      }
+      const outDir = await resolveTranscriptsDir(ctx.cwd)
+      const timeZone = await resolveConfiguredTimezone(ctx.cwd)
+      const { monday, friday, weekLabel } = targetWeekBounds(timeZone)
+      const reportPath = path.join(weeklyDir, `${weekLabel}.md`)
+
+      try {
+        await fs.access(reportPath)
+        ctx.ui.notify(
+          `${weekLabel} already exists at ${reportPath} — skipping (a finished week is never regenerated).`,
+          'info',
+        )
+        return
+      } catch {
+        // doesn't exist yet, proceed
+      }
+
+      const meetings = await findWeekMeetings(outDir, monday, friday)
+      if (meetings.length === 0) {
+        ctx.ui.notify(
+          `No recordings found for ${monday} to ${friday} (${weekLabel}). Nothing to synthesize. ` +
+            'Ask me to check a different week if you want a wider look.',
+          'info',
+        )
+        return
+      }
+
+      await fs.mkdir(weeklyDir, { recursive: true })
+      const lightWeekNote =
+        meetings.length <= 2
+          ? `\n\nLight week — only ${meetings.length} recording(s). Still worth a brief, just shorter; don't dismiss it.`
+          : ''
+      ctx.ui.notify(
+        `Synthesizing ${weekLabel} (${monday} to ${friday}, ${meetings.length} meeting(s)) → ${reportPath}`,
+        'info',
+      )
+      // AIDEV-NOTE: same hand-off pattern as sync/summarize — no LLM-calling API
+      // in command handlers, so the running agent does the actual synthesis
+      // with its own read/write tools.
+      pi.sendUserMessage(
+        `Write the weekly synthesis for ${weekLabel} (${monday} to ${friday}) to ${reportPath}.${lightWeekNote}\n\n${WEEKLY_FORMAT_GUIDANCE}\n\n` +
+          `This week's meeting notes:\n${meetings.map((m) => `- ${m.path}${m.hasSummary ? '' : ' (missing summary — fill in first)'}`).join('\n')}\n\n` +
+          `For decision-arc history, also check other .md notes in ${outDir} from the last 30 days.`,
       )
     },
   })

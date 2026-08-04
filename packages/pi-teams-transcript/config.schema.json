@@ -12,6 +12,10 @@
     "timezone": {
       "type": "string",
       "description": "IANA timezone (e.g. 'Asia/Bangkok') used for day boundaries (today/yesterday) and displayed meeting times in the sync report. Defaults to the system timezone."
+    },
+    "weekly": {
+      "type": "string",
+      "description": "Directory to write /teams-transcript-weekly reports to, one file per ISO week (e.g. 2026-w32.md). Relative paths resolve from cwd. Required for that command — no default."
     }
   }
 }

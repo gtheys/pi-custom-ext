@@ -76,13 +76,15 @@ Non-secret settings live in `~/.pi/agent/pi-teams-transcript/config.json`.
 | `outDir` | `string` | `./teams-transcripts` | Directory to write downloaded transcripts to. Relative paths resolve from cwd. |
 | `userId` | `string` | none | Default meeting organizer's user ID or UPN, used by `/teams-transcript-sync` when not set via the `TEAMS_USER_ID` env var. |
 | `timezone` | `string` | system timezone | IANA timezone (e.g. `Asia/Bangkok`) used for day boundaries (today/yesterday) and displayed meeting times in the sync report. |
+| `weekly` | `string` | none | Directory to write `/teams-transcript-weekly` reports to. Required for that command — no default, since it's a deliberate separate folder. |
 
 ```json
 {
   "$schema": "./config.schema.json",
   "outDir": "./teams-transcripts",
   "userId": "you@example.com",
-  "timezone": "Asia/Bangkok"
+  "timezone": "Asia/Bangkok",
+  "weekly": "./teams-transcripts/weekly"
 }
 ```
 
@@ -143,6 +145,20 @@ If a `.vtt` in `outDir/vtt/` has no `.md` at all in `outDir` (dropped in manuall
 /teams-transcript-summarize
 /teams-transcript-summarize ./notes/transcripts
 ```
+
+## Command: `/teams-transcript-weekly`
+
+`/teams-transcript-weekly`
+
+Synthesizes the most recently *finished* Mon-Fri work week's meeting notes into one report, written to `weekly/<isoyear>-w<isoweek>.md` (e.g. `2026-w31.md`). No arguments — it always targets the last finished work week: while "today" still falls inside the current Mon-Fri span, that week isn't over, so it targets the previous week instead; once today is Sat/Sun, the week that just ended becomes the target. If that week's report file already exists, the command skips — permanently, since a target week is never re-touched once finished.
+
+```
+/teams-transcript-weekly
+```
+
+Zero recordings for that week is reported directly (no LLM call, no file written) rather than hallucinating a summary. Otherwise it hands off to the agent (same mechanism as sync/summarize) to: fill in any of that week's notes still missing a summary, then write Themes → Decision Arcs (cross-references the last 30 days of notes for the same topic, flags STABLE/VOLATILE/CONFLICTING/NEW) → Action Item Audit (open/completed/overdue — overdue needs a `(due YYYY-MM-DD)` on the action item, see below — /assigned-to-others) → Commitments (from each note's existing `## Commitments` section) → Attention Monday → a short closing reflection.
+
+`/teams-transcript-summarize`'s Action Items now capture an optional due date — `- [ ] [[Owner]]: task (due 2026-08-10)` — only when the transcript actually states one (relative dates like "by Friday" get converted to an absolute date using the note's own date as reference); never invented. This is what lets the weekly Action Item Audit classify overdue vs. open.
 
 ## Troubleshooting
 
