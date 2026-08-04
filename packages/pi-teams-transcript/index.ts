@@ -1032,7 +1032,10 @@ async function findPendingSummaries(dir: string): Promise<{
       pending.push(mdPath)
       continue
     }
-    if (mdContent.includes('## Summary')) {
+    // AIDEV-NOTE: anchor to an actual heading line, not a bare substring —
+    // a Transcript line where someone literally says "## Summary" (rare but
+    // real in a raw speech dump) would otherwise false-positive as done.
+    if (/^## Summary\b/m.test(mdContent)) {
       alreadyDone++
     } else {
       pending.push(mdPath)
