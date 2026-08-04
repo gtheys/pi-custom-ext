@@ -44,6 +44,12 @@ const TeamsTranscriptConfigSchema = Type.Object({
         'Directory to write /teams-transcript-weekly reports to, one file per ISO week (e.g. 2026-w32.md). Relative paths resolve from cwd. Required for that command — no default.',
     }),
   ),
+  projects: Type.Optional(
+    Type.String({
+      description:
+        'Directory of one .md file per project (e.g. an Obsidian vault Projects folder). When set, /teams-transcript-summarize and /teams-transcript-weekly cross-link meeting notes with matching project notes, creating or updating a project note when a discussed project has none yet. Relative paths resolve from cwd. Optional — feature is skipped entirely when unset.',
+    }),
+  ),
 })
 
 const GLOBAL_CONFIG_PATH = path.join(
@@ -61,6 +67,7 @@ async function readConfigFile(file: string): Promise<{
   userId?: string
   timezone?: string
   weekly?: string
+  projects?: string
 }> {
   try {
     const raw = await fs.readFile(file, 'utf8')
@@ -90,6 +97,14 @@ async function resolveConfiguredWeeklyDir(
   const global = await readConfigFile(GLOBAL_CONFIG_PATH)
   const project = await readConfigFile(projectConfigPath(cwd))
   return project.weekly || global.weekly
+}
+
+async function resolveConfiguredProjectsDir(
+  cwd: string,
+): Promise<string | undefined> {
+  const global = await readConfigFile(GLOBAL_CONFIG_PATH)
+  const project = await readConfigFile(projectConfigPath(cwd))
+  return project.projects || global.projects
 }
 
 // AIDEV-NOTE: precedence is explicit CLI arg > TEAMS_USER_ID env var >
@@ -857,6 +872,14 @@ async function resolveWeeklyDir(cwd: string): Promise<string | undefined> {
   return path.resolve(cwd, configured)
 }
 
+// AIDEV-NOTE: same shape as resolveWeeklyDir — project cross-linking is an
+// opt-in feature, no fallback path when unconfigured.
+async function resolveProjectsDir(cwd: string): Promise<string | undefined> {
+  const configured = await resolveConfiguredProjectsDir(cwd)
+  if (!configured) return undefined
+  return path.resolve(cwd, configured)
+}
+
 // AIDEV-NOTE: VTT → transcript-line conversion is pure parsing, no LLM
 // needed, so it happens in code (both at sync time with fresh Graph
 // metadata, and lazily here for a manually-dropped .vtt with none).
@@ -1251,6 +1274,34 @@ const WEEKLY_FORMAT_GUIDANCE =
   'decision, owner, theme, or date. If a category has nothing real, omit that subsection ' +
   'rather than padding it.'
 
+// AIDEV-NOTE: matches the observed convention of real project notes in a
+// vault Projects folder — `# Title`, then a one-line description, then
+// `## Status` (dated bullet subsections) and `## Meetings` (bullets linking
+// back to meeting note filenames). Only built when `projects` is configured;
+// callers must skip entirely otherwise — no hardcoded fallback path.
+function buildProjectCrosslinkGuidance(projectsDir: string): string {
+  return (
+    `Project cross-linking: for every project discussed, check ${projectsDir} for a matching ` +
+    '.md file (filename or `# Title` heading matching the project name, case-insensitive; a ' +
+    'close/renamed match still counts as the same project, ask the user only if genuinely ' +
+    'ambiguous). If found:\n' +
+    '- Add a `[[Project Name]]` wikilink into the meeting note wherever that project is ' +
+    'discussed (Summary/Decisions/etc.).\n' +
+    "- Add a bullet to that project note's `## Meetings` section linking back to this meeting " +
+    'note, e.g. `- [[<meeting-filename-without-.md>]] <one-line takeaway>` (create the ' +
+    '`## Meetings` section if missing).\n' +
+    "- If the project note's one-line description (the text right under the `# Title` heading, " +
+    'before the first `##`) is stale or missing given what was just discussed, replace/add it ' +
+    "with an accurate one-liner — keep it short, don't rewrite the rest of the note.\n\n" +
+    `If no matching file exists in ${projectsDir}, create \`<Project Name>.md\` there with:\n` +
+    '```\n# <Project Name>\n\n<one-line description synthesized from what was discussed>\n\n' +
+    '## Status\n\n### [[<meeting-date>]]\n\n- <bullet summarizing what was decided/discussed>\n\n' +
+    '## Meetings\n\n- [[<meeting-filename-without-.md>]] <one-line takeaway>\n```\n' +
+    'and link it from the meeting note the same way as an existing match. Never invent a project ' +
+    "that wasn't actually discussed; skip this entirely for meetings that don't mention any project."
+  )
+}
+
 export default function (pi: ExtensionAPI) {
   // Scaffold config.schema.json next to this file when missing.
   pi.on('session_start', async (event) => {
@@ -1358,15 +1409,15 @@ export default function (pi: ExtensionAPI) {
         if (!params.dir)
           throw new Error('dir is required for action=pendingSummaries')
         const result = await findPendingSummaries(params.dir)
+        const projectsDir = await resolveProjectsDir(ctx.cwd)
+        const formatGuidance = projectsDir
+          ? `${SUMMARY_FORMAT_GUIDANCE}\n\n${buildProjectCrosslinkGuidance(projectsDir)}`
+          : SUMMARY_FORMAT_GUIDANCE
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify(
-                { ...result, formatGuidance: SUMMARY_FORMAT_GUIDANCE },
-                null,
-                2,
-              ),
+              text: JSON.stringify({ ...result, formatGuidance }, null, 2),
             },
           ],
           details: result,
@@ -1598,12 +1649,16 @@ export default function (pi: ExtensionAPI) {
         `Summarizing ${result.pending.length} transcript(s) in ${dir}...`,
         'info',
       )
+      const projectsDir = await resolveProjectsDir(ctx.cwd)
+      const projectGuidance = projectsDir
+        ? `\n\n${buildProjectCrosslinkGuidance(projectsDir)}`
+        : ''
       // AIDEV-NOTE: no LLM-calling API is exposed to command handlers either —
       // hand the pending file list + format spec to the running agent via
       // sendUserMessage, and let it read/summarize/write each one with its
       // own tools (mirrors the pendingSummaries tool action's approach).
       pi.sendUserMessage(
-        `Summarize these Teams transcripts. ${SUMMARY_FORMAT_GUIDANCE}\n\nFiles:\n${result.pending.map((p) => `- ${p}`).join('\n')}`,
+        `Summarize these Teams transcripts. ${SUMMARY_FORMAT_GUIDANCE}${projectGuidance}\n\nFiles:\n${result.pending.map((p) => `- ${p}`).join('\n')}`,
       )
     },
   })
@@ -1655,11 +1710,17 @@ export default function (pi: ExtensionAPI) {
         `Synthesizing ${weekLabel} (${monday} to ${friday}, ${meetings.length} meeting(s)) → ${reportPath}`,
         'info',
       )
+      const projectsDir = await resolveProjectsDir(ctx.cwd)
+      const projectGuidance = projectsDir
+        ? `\n\n${buildProjectCrosslinkGuidance(projectsDir)} Also link the weekly report itself ` +
+          `into each touched project's \`## Meetings\` section (e.g. \`- [[${weekLabel}]] weekly recap\`), ` +
+          'and add a `## Projects` bullet list of `[[Project Name]]` links to the weekly report itself.'
+        : ''
       // AIDEV-NOTE: same hand-off pattern as sync/summarize — no LLM-calling API
       // in command handlers, so the running agent does the actual synthesis
       // with its own read/write tools.
       pi.sendUserMessage(
-        `Write the weekly synthesis for ${weekLabel} (${monday} to ${friday}) to ${reportPath}.${lightWeekNote}\n\n${WEEKLY_FORMAT_GUIDANCE}\n\n` +
+        `Write the weekly synthesis for ${weekLabel} (${monday} to ${friday}) to ${reportPath}.${lightWeekNote}\n\n${WEEKLY_FORMAT_GUIDANCE}${projectGuidance}\n\n` +
           `This week's meeting notes:\n${meetings.map((m) => `- ${m.path}${m.hasSummary ? '' : ' (missing summary — fill in first)'}`).join('\n')}\n\n` +
           `For decision-arc history, also check other .md notes in ${outDir} from the last 30 days.`,
       )

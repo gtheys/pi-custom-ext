@@ -16,6 +16,10 @@
     "weekly": {
       "type": "string",
       "description": "Directory to write /teams-transcript-weekly reports to, one file per ISO week (e.g. 2026-w32.md). Relative paths resolve from cwd. Required for that command — no default."
+    },
+    "projects": {
+      "type": "string",
+      "description": "Directory of one .md file per project (e.g. an Obsidian vault Projects folder). When set, /teams-transcript-summarize and /teams-transcript-weekly cross-link meeting notes with matching project notes, creating or updating a project note when a discussed project has none yet. Relative paths resolve from cwd. Optional — feature is skipped entirely when unset."
     }
   }
 }

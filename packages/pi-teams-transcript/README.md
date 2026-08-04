@@ -77,6 +77,7 @@ Non-secret settings live in `~/.pi/agent/pi-teams-transcript/config.json`.
 | `userId` | `string` | none | Default meeting organizer's user ID or UPN, used by `/teams-transcript-sync` when not set via the `TEAMS_USER_ID` env var. |
 | `timezone` | `string` | system timezone | IANA timezone (e.g. `Asia/Bangkok`) used for day boundaries (today/yesterday) and displayed meeting times in the sync report. |
 | `weekly` | `string` | none | Directory to write `/teams-transcript-weekly` reports to. Required for that command — no default, since it's a deliberate separate folder. |
+| `projects` | `string` | none | Directory of one `.md` file per project (e.g. an Obsidian vault `Projects` folder). When set, `/teams-transcript-summarize` and `/teams-transcript-weekly` cross-link meeting/weekly notes with matching project notes. Optional — skipped entirely when unset. |
 
 ```json
 {
@@ -84,7 +85,8 @@ Non-secret settings live in `~/.pi/agent/pi-teams-transcript/config.json`.
   "outDir": "./teams-transcripts",
   "userId": "you@example.com",
   "timezone": "Asia/Bangkok",
-  "weekly": "./teams-transcripts/weekly"
+  "weekly": "./teams-transcripts/weekly",
+  "projects": "/home/you/ZenVault/Projects"
 }
 ```
 
@@ -145,6 +147,10 @@ If a `.vtt` in `outDir/vtt/` has no `.md` at all in `outDir` (dropped in manuall
 /teams-transcript-summarize
 /teams-transcript-summarize ./notes/transcripts
 ```
+
+### Project cross-linking
+
+When `projects` is configured, both this command and `/teams-transcript-weekly` scan that folder for a `.md` file matching any project discussed in the meeting (by filename or `# Title` heading). If found, the agent links the meeting note to it and adds a bullet to the project note's `## Meetings` section pointing back, matching the existing `# Title` / `## Status` / `## Meetings` convention. If the project's one-line description (right under `# Title`) is stale, it's refreshed; if no matching project note exists, one is created with a short description synthesized from the meeting. `/teams-transcript-weekly` additionally links the weekly report itself into each touched project's `## Meetings` section. Never invents a project that wasn't actually discussed.
 
 ## Command: `/teams-transcript-weekly`
 
