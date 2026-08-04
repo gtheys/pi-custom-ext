@@ -110,7 +110,7 @@ You still need the organizer's `userId` — app-only auth has no delegated "me" 
 
 `/teams-transcript-sync [today|yesterday|week|month]`
 
-Scans the calendar for the given range (default `today`) via `/calendarView` (so recurring meetings expand into real occurrences), and for each non-all-day meeting with a transcript, downloads it into `outDir` as `<date>_<slugified-subject>__<transcriptId>.vtt`. Re-running the command **skips files that already exist on disk** — no manifest, the filename itself is the idempotency key. Cancelled meetings are reported but skipped (never had a call, so never have a transcript).
+Scans the calendar for the given range (default `today`) via `/calendarView` (so recurring meetings expand into real occurrences), and for each non-all-day meeting with a transcript, downloads the raw transcript into `outDir/vtt/` and writes the `.md` note into `outDir` itself, both as `<date>_<slugified-subject>__<transcriptId>.<ext>` (only the `.vtt`/`.md` extension differs). Re-running the command **skips files that already exist on disk** — no manifest, the filename itself is the idempotency key. Cancelled meetings are reported but skipped (never had a call, so never have a transcript).
 
 `week`/`month` sync the last 7/30 days, one day at a time (same logic as `today`/`yesterday`, just repeated) — each day keeps its own transcript-date filter, so a recurring meeting's shared onlineMeeting object still only contributes the transcript that actually belongs to that day, not the whole series' history.
 
@@ -137,7 +137,7 @@ Attendee names render as Obsidian wikilinks throughout the file: full names as `
 
 Scans `dir` (default: same as sync's `outDir`) for transcripts whose `.md` stub doesn't have a `## Summary` section yet, then has the agent read each one and insert Summary/Decisions/Action Items/Open Questions/Commitments between the existing header and `## Transcript` — the frontmatter, title/date/attendees header, and transcript itself are never touched or regenerated. Person names in the inserted sections use the same Obsidian wikilink convention as the transcript (short names resolve to the full attendee name via an alias link).
 
-If a `.vtt` has no `.md` at all (dropped in manually, or synced before this existed), a stub is bootstrapped first from the file itself: attendees from the distinct `<v Name>` speakers in the VTT, date from the filename's `YYYY-MM-DD` prefix or file mtime, title de-slugified from the filename.
+If a `.vtt` in `outDir/vtt/` has no `.md` at all in `outDir` (dropped in manually, or synced before this existed), a stub is bootstrapped first from the file itself: attendees from the distinct `<v Name>` speakers in the VTT, date from the filename's `YYYY-MM-DD` prefix or file mtime, title de-slugified from the filename. Drop manually-added `.vtt` files into `outDir/vtt/`, same as synced ones.
 
 ```
 /teams-transcript-summarize

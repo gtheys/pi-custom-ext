@@ -466,6 +466,14 @@ function themedReportLine(
   return theme.fg(color, formatReportLine(m, timeZone))
 }
 
+// AIDEV-NOTE: raw downloaded transcripts (.vtt/.txt) live under outDir/vtt/
+// so the vault's top level only shows the .md notes. Single source of truth
+// for that path — used by both the sync writer and findPendingSummaries'
+// reader, so they can never drift apart.
+function vttSubdir(outDir: string): string {
+  return path.join(outDir, 'vtt')
+}
+
 function slugify(s: string): string {
   return (
     s
@@ -521,7 +529,8 @@ async function syncTranscripts(opts: {
 }> {
   const { userId, outDir, dayOffset, timeZone, format } = opts
   const log = opts.onProgress ?? (() => {})
-  await fs.mkdir(outDir, { recursive: true })
+  const vttDir = vttSubdir(outDir)
+  await fs.mkdir(vttDir, { recursive: true })
 
   const dayWindow = dayBounds(dayOffset, timeZone)
   const meetings = await listMeetingsForDay(userId, dayOffset, timeZone)
@@ -595,7 +604,7 @@ async function syncTranscripts(opts: {
       let anyDownloaded = false
       for (const t of transcripts) {
         const fileName = `${baseName}__${shortId(t.id)}.${extForFormat(format)}`
-        const filePath = path.join(outDir, fileName)
+        const filePath = path.join(vttDir, fileName)
         try {
           await fs.access(filePath)
           skippedExisting.push(fileName)
@@ -988,13 +997,16 @@ async function findPendingSummaries(dir: string): Promise<{
   pending: string[]
   alreadyDone: number
 }> {
-  const entries = await fs.readdir(dir).catch(() => [] as string[])
+  const vttDir = vttSubdir(dir)
+  const entries = await fs.readdir(vttDir).catch(() => [] as string[])
   const vttFiles = entries.filter((f) => f.endsWith('.vtt'))
   const pending: string[] = []
   let alreadyDone = 0
   for (const vttFile of vttFiles) {
     const base = vttFile.slice(0, -4)
-    const vttPath = path.join(dir, vttFile)
+    const vttPath = path.join(vttDir, vttFile)
+    // AIDEV-NOTE: .md notes stay at the top level (dir), not vttDir — only the
+    // raw .vtt lives in the vtt/ subfolder.
     const mdPath = path.join(dir, `${base}.md`)
     let mdContent: string | null = null
     try {
