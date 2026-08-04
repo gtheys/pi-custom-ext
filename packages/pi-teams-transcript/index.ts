@@ -197,6 +197,18 @@ async function listRecentMeetings(userId: string, top: number) {
 }
 
 export type SyncDay = 'today' | 'yesterday'
+export type SyncRange = SyncDay | 'week' | 'month'
+
+// AIDEV-NOTE: 'week'/'month' are just N repeats of the existing single-day
+// sync (today, today-1, ... today-N+1) — each day keeps its own
+// dayBounds()-scoped transcript filter (see syncTranscripts), so this reuses
+// the recurring-meeting date-window fix rather than introducing a second
+// code path that could reintroduce the duplicate/mislabeled-date bug.
+function dayOffsetsFor(range: SyncRange): number[] {
+  if (range === 'week') return [0, -1, -2, -3, -4, -5, -6]
+  if (range === 'month') return Array.from({ length: 30 }, (_, i) => -i)
+  return range === 'yesterday' ? [-1] : [0]
+}
 
 // AIDEV-NOTE: no Intl.DateTimeFormat 'today' shortcut works across an
 // arbitrary IANA timezone — have to compute the UTC instant of local
@@ -231,9 +243,11 @@ function tzOffsetMinutes(instant: Date, timeZone: string): number {
 // AIDEV-NOTE: calendarView expands recurring series into real occurrences,
 // so a daily/weekly standup only shows up on the day it actually falls on
 // in the configured timezone. All-day events are skipped (no joinUrl).
-function dayBounds(day: SyncDay, timeZone: string): { start: Date; end: Date } {
+function dayBounds(
+  dayOffset: number,
+  timeZone: string,
+): { start: Date; end: Date } {
   const now = new Date()
-  const dayOffset = day === 'yesterday' ? -1 : 0
   const ymd = new Intl.DateTimeFormat('en-CA', {
     timeZone,
     year: 'numeric',
@@ -267,10 +281,10 @@ async function backfillJoinUrl(
 
 async function listMeetingsForDay(
   userId: string,
-  day: SyncDay,
+  dayOffset: number,
   timeZone: string,
 ) {
-  const { start, end } = dayBounds(day, timeZone)
+  const { start, end } = dayBounds(dayOffset, timeZone)
   const res = await graphFetch(
     `${GRAPH_BASE}/users/${encodeURIComponent(userId)}/calendarView?startDateTime=${start.toISOString()}&endDateTime=${end.toISOString()}&$orderby=start/dateTime asc&$top=100&$select=subject,start,end,isAllDay,isCancelled,isOnlineMeeting,onlineMeeting,attendees`,
   )
@@ -480,7 +494,7 @@ function extForFormat(format: string): string {
 async function syncTranscripts(opts: {
   userId: string
   outDir: string
-  day: SyncDay
+  dayOffset: number
   timeZone: string
   format: string
   onProgress?: (line: string) => void
@@ -505,12 +519,12 @@ async function syncTranscripts(opts: {
       | 'error'
   }>
 }> {
-  const { userId, outDir, day, timeZone, format } = opts
+  const { userId, outDir, dayOffset, timeZone, format } = opts
   const log = opts.onProgress ?? (() => {})
   await fs.mkdir(outDir, { recursive: true })
 
-  const dayWindow = dayBounds(day, timeZone)
-  const meetings = await listMeetingsForDay(userId, day, timeZone)
+  const dayWindow = dayBounds(dayOffset, timeZone)
+  const meetings = await listMeetingsForDay(userId, dayOffset, timeZone)
   const downloaded: string[] = []
   const skippedExisting: string[] = []
   const skippedNoTranscript: string[] = []
@@ -657,6 +671,43 @@ async function syncTranscripts(opts: {
     skippedNoTranscript,
     errors,
     timeZone,
+  }
+}
+
+// AIDEV-NOTE: 'week'/'month' just call syncTranscripts once per day offset
+// and concatenate the reports — each day keeps its own dayBounds()-scoped
+// transcript filter, so backfilling a range can't reintroduce the
+// mislabeled-date bug a single shared window would.
+async function syncTranscriptsRange(opts: {
+  userId: string
+  outDir: string
+  range: SyncRange
+  timeZone: string
+  format: string
+  onProgress?: (line: string) => void
+}) {
+  const offsets = dayOffsetsFor(opts.range)
+  const results = []
+  for (const dayOffset of offsets) {
+    results.push(
+      await syncTranscripts({
+        userId: opts.userId,
+        outDir: opts.outDir,
+        dayOffset,
+        timeZone: opts.timeZone,
+        format: opts.format,
+        onProgress: opts.onProgress,
+      }),
+    )
+  }
+  return {
+    scanned: results.reduce((n, r) => n + r.scanned, 0),
+    downloaded: results.flatMap((r) => r.downloaded),
+    skippedExisting: results.flatMap((r) => r.skippedExisting),
+    skippedNoTranscript: results.flatMap((r) => r.skippedNoTranscript),
+    errors: results.flatMap((r) => r.errors),
+    timeZone: opts.timeZone,
+    meetings: results.flatMap((r) => r.meetings),
   }
 }
 
@@ -1108,9 +1159,18 @@ export default function (pi: ExtensionAPI) {
         }),
       ),
       day: Type.Optional(
-        Type.Union([Type.Literal('today'), Type.Literal('yesterday')], {
-          description: "Day to sync for action=sync, default 'today'",
-        }),
+        Type.Union(
+          [
+            Type.Literal('today'),
+            Type.Literal('yesterday'),
+            Type.Literal('week'),
+            Type.Literal('month'),
+          ],
+          {
+            description:
+              "Range to sync for action=sync: 'today'/'yesterday' (default 'today'), or 'week'/'month' for the last 7/30 days (each day filtered independently, so recurring meetings still resolve to the right day's transcript)",
+          },
+        ),
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -1142,16 +1202,16 @@ export default function (pi: ExtensionAPI) {
         }
         const outDir = await resolveTranscriptsDir(ctx.cwd)
         const timeZone = await resolveConfiguredTimezone(ctx.cwd)
-        const day: SyncDay = params.day === 'yesterday' ? 'yesterday' : 'today'
-        const result = await syncTranscripts({
+        const range: SyncRange = params.day || 'today'
+        const result = await syncTranscriptsRange({
           userId,
           outDir,
-          day,
+          range,
           timeZone,
           format: 'text/vtt',
         })
         const lines = [
-          `# Teams Transcript Sync (${day}, ${timeZone})`,
+          `# Teams Transcript Sync (${range}, ${timeZone})`,
           `Meetings scanned: ${result.scanned}`,
           `Downloaded: ${result.downloaded.length}`,
           ...result.downloaded.map((f) => `  + ${f}`),
@@ -1286,7 +1346,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand('teams-transcript-sync', {
     description:
-      "Fetch today's or yesterday's Teams meeting transcripts into a folder, skipping already-downloaded ones. Usage: /teams-transcript-sync [today|yesterday]",
+      'Fetch Teams meeting transcripts into a folder, skipping already-downloaded ones. Usage: /teams-transcript-sync [today|yesterday|week|month]',
     getArgumentCompletions: (argumentPrefix) => {
       const options: AutocompleteItem[] = [
         {
@@ -1299,6 +1359,16 @@ export default function (pi: ExtensionAPI) {
           label: 'yesterday',
           description: "Sync yesterday's meetings",
         },
+        {
+          value: 'week',
+          label: 'week',
+          description: 'Sync the last 7 days',
+        },
+        {
+          value: 'month',
+          label: 'month',
+          description: 'Sync the last 30 days',
+        },
       ]
       return options.filter((o) => o.value.startsWith(argumentPrefix))
     },
@@ -1310,7 +1380,10 @@ export default function (pi: ExtensionAPI) {
     // (no per-line styling API). Mirrors /teams-transcript-summarize's pattern.
     handler: async (args, ctx) => {
       const argDay = args.trim().split(/\s+/).filter(Boolean)[0]
-      const day: SyncDay = argDay === 'yesterday' ? 'yesterday' : 'today'
+      const range: SyncRange =
+        argDay === 'yesterday' || argDay === 'week' || argDay === 'month'
+          ? argDay
+          : 'today'
       const userId = await resolveConfiguredUserId(ctx.cwd)
       if (!userId) {
         ctx.ui.notify(
@@ -1320,7 +1393,7 @@ export default function (pi: ExtensionAPI) {
         return
       }
       pi.sendUserMessage(
-        `Call the teams_transcript tool with action="sync", day="${day}".`,
+        `Call the teams_transcript tool with action="sync", day="${range}".`,
       )
     },
   })

@@ -108,18 +108,24 @@ You still need the organizer's `userId` — app-only auth has no delegated "me" 
 
 ## Command: `/teams-transcript-sync`
 
-`/teams-transcript-sync [today|yesterday]`
+`/teams-transcript-sync [today|yesterday|week|month]`
 
-Scans the calendar for the given day (default `today`) via `/calendarView` (so recurring meetings expand into real occurrences), and for each non-all-day meeting with a transcript, downloads it into `outDir` as `<date>_<slugified-subject>__<transcriptId>.vtt`. Re-running the command **skips files that already exist on disk** — no manifest, the filename itself is the idempotency key. Cancelled meetings are reported but skipped (never had a call, so never have a transcript).
+Scans the calendar for the given range (default `today`) via `/calendarView` (so recurring meetings expand into real occurrences), and for each non-all-day meeting with a transcript, downloads it into `outDir` as `<date>_<slugified-subject>__<transcriptId>.vtt`. Re-running the command **skips files that already exist on disk** — no manifest, the filename itself is the idempotency key. Cancelled meetings are reported but skipped (never had a call, so never have a transcript).
+
+`week`/`month` sync the last 7/30 days, one day at a time (same logic as `today`/`yesterday`, just repeated) — each day keeps its own transcript-date filter, so a recurring meeting's shared onlineMeeting object still only contributes the transcript that actually belongs to that day, not the whole series' history.
 
 ```
 /teams-transcript-sync
 /teams-transcript-sync yesterday
+/teams-transcript-sync week
+/teams-transcript-sync month
 ```
 
-Tab-complete on the `today`/`yesterday` argument. `userId` comes from config `userId`, else `TEAMS_USER_ID` env var — required, no positional arg anymore. `outDir` comes from config, else `./teams-transcripts`.
+Tab-complete on the `today`/`yesterday`/`week`/`month` argument. `userId` comes from config `userId`, else `TEAMS_USER_ID` env var — required, no positional arg anymore. `outDir` comes from config, else `./teams-transcripts`.
 
 The command hands off to the agent (`action="sync"` on the `teams_transcript` tool) instead of running the sync itself, so the report renders themed and colored — same mechanism as built-in tools like `read`/`write` (green=downloaded, dim=no transcript, yellow=cancelled, red=error). A command's own `ctx.ui.notify` has no per-line styling API, only the tool-call rendering pipeline does. One line per meeting: local time, subject, status, truncated `meetingId`.
+
+Per-meeting status values: `downloaded`/`already-synced` (green), `no-transcript`/`not-started` (nothing there — `not-started` means the occurrence hasn't happened yet, checked before any Graph call so it's free), `not-organizer` (you're not that meeting's organizer, so the app access policy doesn't cover it — expected for meetings you only attend), `cancelled` (yellow), `error` (red, unexpected).
 
 Sync also writes a sibling `.md` for each downloaded transcript, pre-filled with Obsidian frontmatter (`title`/`date`/`attendees`, from the calendar event), a matching `# title` / Date / Attendees header, and the full `## Transcript` section — all deterministic, no LLM involved. Only the Summary/Decisions/Action Items/Open Questions/Commitments sections are left for `/teams-transcript-summarize` to fill in.
 
