@@ -111,10 +111,11 @@ Before touching any code, confirm the workspace is on the correct feature branch
 
 ### 3a — Derive the expected branch name
 
-Run the script in dry-run mode to get the canonical branch name without creating anything:
+The branch script **ships with this skill** at `scripts/jira-branch.sh` relative to this SKILL.md. Resolve it to the skill directory (NOT the target repo — it will not exist there) and run it from inside the target repo, since it operates on the current cwd's git repo:
 
 ```bash
-bash scripts/jira-branch.sh <JIRA_ID> --dry-run
+# run from the target repo's root; <SKILL_DIR> = directory containing this SKILL.md
+bash <SKILL_DIR>/scripts/jira-branch.sh <JIRA_ID> --dry-run
 ```
 
 Parse the `Branch:` line from the output — format is `<prefix>/<JIRA_ID>-<slug>`.
@@ -131,7 +132,7 @@ git rev-parse --abbrev-ref HEAD
 |-----------|--------|
 | Current branch == expected branch | ✓ Proceed |
 | Expected branch exists locally (`git show-ref --verify refs/heads/<branch>`) | `git checkout <branch>` |
-| Expected branch does not exist | `bash scripts/jira-branch.sh <JIRA_ID>` — creates branch and sets git-town parent |
+| Expected branch does not exist | `bash <SKILL_DIR>/scripts/jira-branch.sh <JIRA_ID>` — creates branch and sets git-town parent |
 
 If the script fails (e.g. `acli` not available or repo is a personal project with no Jira), report the error and ask the user how to proceed before continuing.
 
