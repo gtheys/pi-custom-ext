@@ -9,3 +9,5 @@ graphify-out/.graphify_python
 /graphify-out/obsidian
 /.sem
 /extensions/graphify-out/cache/ast
+/.aislop
+/.pi/guard
