@@ -1,6 +1,7 @@
 /**
- * /openspec-propose-jira and /openspec-new-jira: fetch a ticket from
- * taskwarrior by Jira ID, then hand off to the matching openspec skill.
+ * /openspec-propose-jira, /openspec-new-jira, /openspec-apply-jira: fetch a
+ * ticket from taskwarrior by Jira ID, then hand off to the matching
+ * openspec skill. apply-jira also verifies/creates the feature branch first.
  */
 
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
@@ -12,6 +13,7 @@ interface TwTask {
   description: string
   jirasummary?: string
   jiradescription?: string
+  jiraissuetype?: string
   [key: string]: unknown
 }
 
@@ -51,9 +53,137 @@ function buildChangeBrief(jiraId: string, task: TwTask): string {
   return `${name}: ${jiraId} ${brief}`
 }
 
+// ── Branch derivation ─────────────────────────────────────────────────────────
+// AIDEV-NOTE: mirrors skills/engineering/implement-plan/scripts/jira-branch.sh
+// (issue-type prefix map + 5-word slug + git-town parent) so both flows
+// produce the same branch for the same ticket.
+
+const TYPE_PREFIX_MAP: Record<string, string> = {
+  bug: 'bugfix',
+  hotfix: 'hotfix',
+  story: 'feature',
+  feature: 'feature',
+  epic: 'feature',
+  task: 'chore',
+  'sub-task': 'chore',
+  subtask: 'chore',
+  improvement: 'feature',
+  'technical debt': 'chore',
+  spike: 'chore',
+}
+const DEFAULT_PREFIX = 'feature'
+const PARENT_BRANCH = 'develop'
+
+function deriveBranchName(
+  jiraId: string,
+  issueType: string | undefined,
+  summary: string,
+): string {
+  const prefix =
+    TYPE_PREFIX_MAP[(issueType ?? '').toLowerCase()] ?? DEFAULT_PREFIX
+  const slug = summary
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .split('-')
+    .slice(0, 5)
+    .join('-')
+  return `${prefix}/${jiraId}-${slug}`
+}
+
+type CommandContext = Parameters<
+  Parameters<ExtensionAPI['registerCommand']>[1]['handler']
+>[1]
+
+/** Verify or create the branch for `jiraId`; returns the branch name, or null on failure. */
+async function ensureBranch(
+  pi: ExtensionAPI,
+  ctx: CommandContext,
+  jiraId: string,
+  task: TwTask,
+): Promise<string | null> {
+  const summary = task.jirasummary ?? task.description
+  const branch = deriveBranchName(jiraId, task.jiraissuetype, summary)
+
+  const current = await pi.exec(
+    'git',
+    ['rev-parse', '--abbrev-ref', 'HEAD'],
+    {},
+  )
+  if (current.code !== 0) {
+    ctx.ui.notify(`Not inside a git repository: ${current.stderr}`, 'error')
+    return null
+  }
+  if (current.stdout.trim() === branch) {
+    ctx.ui.notify(`Already on branch '${branch}'`, 'info')
+    return branch
+  }
+
+  const exists = await pi.exec(
+    'git',
+    ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`],
+    {},
+  )
+  if (exists.code === 0) {
+    ctx.ui.notify(`Branch '${branch}' exists, checking out...`, 'info')
+    const checkout = await pi.exec('git', ['checkout', branch], {})
+    if (checkout.code !== 0) {
+      ctx.ui.notify(
+        `Failed to checkout '${branch}': ${checkout.stderr}`,
+        'error',
+      )
+      return null
+    }
+    return branch
+  }
+
+  ctx.ui.notify(`Creating branch '${branch}'...`, 'info')
+  const create = await pi.exec('git', ['checkout', '-b', branch], {})
+  if (create.code !== 0) {
+    ctx.ui.notify(`Failed to create '${branch}': ${create.stderr}`, 'error')
+    return null
+  }
+
+  const setParent = await pi.exec(
+    'git',
+    ['town', 'set-parent', PARENT_BRANCH],
+    {},
+  )
+  if (setParent.code !== 0) {
+    ctx.ui.notify(
+      `Branch created, but 'git town set-parent ${PARENT_BRANCH}' failed (git-town not installed?): ${setParent.stderr}`,
+      'warning',
+    )
+  }
+
+  return branch
+}
+
+/** Find an openspec change whose name contains the Jira ID (case-insensitive). */
+async function findChangeName(
+  pi: ExtensionAPI,
+  jiraId: string,
+): Promise<string | null> {
+  const result = await pi.exec('openspec', ['list', '--json'], {})
+  if (result.code !== 0) return null
+  try {
+    const parsed = JSON.parse(result.stdout) as {
+      changes?: Array<{ name: string }>
+    }
+    const matches = (parsed.changes ?? []).filter((c) =>
+      c.name.toLowerCase().includes(jiraId.toLowerCase()),
+    )
+    return matches.length === 1 ? matches[0].name : null
+  } catch {
+    return null
+  }
+}
+
 async function routeToSkill(
   pi: ExtensionAPI,
-  ctx: Parameters<Parameters<ExtensionAPI['registerCommand']>[1]['handler']>[1],
+  ctx: CommandContext,
   skillName: string,
   args: string,
 ) {
@@ -80,6 +210,35 @@ async function routeToSkill(
   pi.sendUserMessage(`/skill:${skillName} ${brief}`)
 }
 
+async function routeToApply(
+  pi: ExtensionAPI,
+  ctx: CommandContext,
+  args: string,
+) {
+  const jiraId = args.trim().toUpperCase()
+  if (!jiraId) {
+    ctx.ui.notify('Usage: /openspec-apply-jira <JIRA-ID>', 'warning')
+    return
+  }
+
+  ctx.ui.notify(`Fetching ${jiraId} from taskwarrior...`, 'info')
+  const task = await fetchJiraTicket(pi, jiraId)
+  if (!task) {
+    ctx.ui.notify(
+      `No taskwarrior task found for "${jiraId}". Run \`bugwarrior pull\` to sync.`,
+      'error',
+    )
+    return
+  }
+
+  const branch = await ensureBranch(pi, ctx, jiraId, task)
+  if (!branch) return
+
+  const changeName = await findChangeName(pi, jiraId)
+  const target = changeName ?? jiraId
+  pi.sendUserMessage(`/skill:openspec-apply-change ${target}`)
+}
+
 export default function (pi: ExtensionAPI) {
   pi.registerCommand('openspec-propose-jira', {
     description: 'Propose an OpenSpec change from a Jira ticket',
@@ -89,5 +248,11 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand('openspec-new-jira', {
     description: 'Start a new OpenSpec change from a Jira ticket',
     handler: (args, ctx) => routeToSkill(pi, ctx, 'openspec-new-change', args),
+  })
+
+  pi.registerCommand('openspec-apply-jira', {
+    description:
+      'Verify/create the feature branch for a Jira ticket, then implement its OpenSpec change',
+    handler: (args, ctx) => routeToApply(pi, ctx, args),
   })
 }
