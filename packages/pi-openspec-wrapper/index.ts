@@ -75,6 +75,23 @@ async function fetchJiraTicket(
   return tasks[0] ?? null
 }
 
+/** Fetch a ticket, notifying and returning null if taskwarrior has no match. */
+async function fetchJiraTicketOrNotify(
+  pi: ExtensionAPI,
+  ctx: CommandContext,
+  jiraId: string,
+): Promise<TwTask | null> {
+  ctx.ui.notify(`Fetching ${jiraId} from taskwarrior...`, 'info')
+  const task = await fetchJiraTicket(pi, jiraId)
+  if (!task) {
+    ctx.ui.notify(
+      `No taskwarrior task found for "${jiraId}". Run \`bugwarrior pull\` to sync.`,
+      'error',
+    )
+  }
+  return task
+}
+
 function buildChangeBrief(jiraId: string, task: TwTask): string {
   const summary = task.jirasummary ?? task.description
   const description = task.jiradescription ?? ''
@@ -205,8 +222,14 @@ async function findChangeName(
     const parsed = JSON.parse(result.stdout) as {
       changes?: Array<{ name: string }>
     }
+    // AIDEV-NOTE: strip non-alphanumerics before matching — change names don't
+    // reliably preserve the JIRA-ID's dash (e.g. "DP-205" -> "migrate-dp205-...").
+    const needle = jiraId.toLowerCase().replace(/[^a-z0-9]/g, '')
     const matches = (parsed.changes ?? []).filter((c) =>
-      c.name.toLowerCase().includes(jiraId.toLowerCase()),
+      c.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+        .includes(needle),
     )
     return matches.length === 1 ? matches[0].name : null
   } catch {
@@ -229,15 +252,8 @@ async function routeToSkill(
     return
   }
 
-  ctx.ui.notify(`Fetching ${jiraId} from taskwarrior...`, 'info')
-  const task = await fetchJiraTicket(pi, jiraId)
-  if (!task) {
-    ctx.ui.notify(
-      `No taskwarrior task found for "${jiraId}". Run \`bugwarrior pull\` to sync.`,
-      'error',
-    )
-    return
-  }
+  const task = await fetchJiraTicketOrNotify(pi, ctx, jiraId)
+  if (!task) return
 
   const brief = buildChangeBrief(jiraId, task)
   const storeId = getDefaultStoreId()
@@ -257,15 +273,8 @@ async function routeToApply(
     return
   }
 
-  ctx.ui.notify(`Fetching ${jiraId} from taskwarrior...`, 'info')
-  const task = await fetchJiraTicket(pi, jiraId)
-  if (!task) {
-    ctx.ui.notify(
-      `No taskwarrior task found for "${jiraId}". Run \`bugwarrior pull\` to sync.`,
-      'error',
-    )
-    return
-  }
+  const task = await fetchJiraTicketOrNotify(pi, ctx, jiraId)
+  if (!task) return
 
   const branch = await ensureBranch(pi, ctx, jiraId, task)
   if (!branch) return
@@ -276,6 +285,37 @@ async function routeToApply(
   const target = changeName ?? jiraId
   const storeSuffix = storeId ? ` --store "${storeId}"` : ''
   pi.sendUserMessage(`/skill:openspec-apply-change ${target}${storeSuffix}`)
+}
+
+async function routeToArchive(
+  pi: ExtensionAPI,
+  ctx: CommandContext,
+  args: string,
+) {
+  const jiraId = args.trim().toUpperCase()
+  if (!jiraId) {
+    ctx.ui.notify('Usage: /openspec-archive-jira <JIRA-ID>', 'warning')
+    return
+  }
+
+  const task = await fetchJiraTicketOrNotify(pi, ctx, jiraId)
+  if (!task) return
+
+  const storeId = getDefaultStoreId()
+  warnIfLocalRootOverridden(ctx, ctx.cwd, storeId)
+  const changeName = await findChangeName(pi, jiraId, storeId)
+  if (!changeName) {
+    ctx.ui.notify(
+      `No single openspec change matches "${jiraId}" in ${storeId ? `store "${storeId}"` : 'the local root'}.`,
+      'error',
+    )
+    return
+  }
+
+  const storeSuffix = storeId ? ` --store "${storeId}"` : ''
+  pi.sendUserMessage(
+    `/skill:openspec-archive-change ${changeName}${storeSuffix}`,
+  )
 }
 
 // ── Native openspec tool + auto-context injection ────────────────────────────
@@ -355,5 +395,10 @@ export default function (pi: ExtensionAPI) {
     description:
       'Verify/create the feature branch for a Jira ticket, then implement its OpenSpec change',
     handler: (args, ctx) => routeToApply(pi, ctx, args),
+  })
+
+  pi.registerCommand('openspec-archive-jira', {
+    description: 'Archive the OpenSpec change matching a Jira ticket',
+    handler: (args, ctx) => routeToArchive(pi, ctx, args),
   })
 }

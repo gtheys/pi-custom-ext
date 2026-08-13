@@ -11,8 +11,11 @@ Instead of typing a change name and description by hand, give a Jira ID — the 
 | `/openspec-propose-jira <JIRA-ID>` | `/skill:openspec-propose` |
 | `/openspec-new-jira <JIRA-ID>` | `/skill:openspec-new-change` |
 | `/openspec-apply-jira <JIRA-ID>` | Verifies/creates the feature branch, then `/skill:openspec-apply-change` |
+| `/openspec-archive-jira <JIRA-ID>` | Resolves the matching change, then `/skill:openspec-archive-change` |
 
 `/openspec-apply-jira` derives the branch name the same way as `implement-plan`'s `jira-branch.sh` (`<prefix>/<JIRA-ID>-<slug>`, issue-type → prefix map, `git town set-parent develop`), but sources the ticket from taskwarrior instead of `acli`. If already on the branch it proceeds; if the branch exists locally it checks it out; otherwise it creates it. It then looks up the matching `openspec list` change by Jira ID and hands off to `openspec-apply-change`.
+
+`/openspec-archive-jira` requires an exact single-change match by Jira ID (unlike apply, it won't fall back to passing the bare Jira ID through — archiving moves files, so an ambiguous match aborts with an error instead of guessing). Change-name matching strips non-alphanumerics before comparing, since a change name doesn't reliably preserve the ticket's dash (e.g. `DP-205` → `migrate-dp205-cronjobs-off-users-table`).
 
 ## `openspec` tool + auto-context
 
