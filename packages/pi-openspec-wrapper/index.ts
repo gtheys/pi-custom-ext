@@ -2,29 +2,40 @@
  * /openspec-propose-jira, /openspec-new-jira, /openspec-apply-jira: fetch a
  * ticket from taskwarrior by Jira ID, then hand off to the matching
  * openspec skill. apply-jira also verifies/creates the feature branch first.
+ *
+ * Also: an `openspec` query tool and before_agent_start auto-context
+ * injection, so the agent always has current spec-driven state.
  */
 
-import { readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import { Type } from 'typebox'
+import {
+  findOpenSpecRoot,
+  getDefaultStoreId,
+  resolveQueryScope,
+} from './scope.ts'
+import { registerStatusWidget } from './status-widget.ts'
+
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, '').trim()
+}
 
 // AIDEV-NOTE: kept local instead of depending on @gtheys/pi-planning — this
 // package must work standalone without that extension installed.
 
-// AIDEV-NOTE: `openspec new change`/`list` without --store resolve against the
-// nearest repo-local openspec/ root, not the configured defaultStore — the
-// CLI only honors --store when passed explicitly. Read it ourselves so this
-// wrapper always targets the user's default store.
-function getDefaultStoreId(): string | undefined {
-  try {
-    const configPath = join(homedir(), '.config', 'openspec', 'config.json')
-    const config = JSON.parse(readFileSync(configPath, 'utf-8')) as {
-      defaultStore?: string
-    }
-    return config.defaultStore
-  } catch {
-    return undefined
+/** Notify once if a repo-local openspec/ root exists but a different store is being forced. */
+function warnIfLocalRootOverridden(
+  ctx: CommandContext,
+  cwd: string,
+  storeId: string | undefined,
+) {
+  if (!storeId) return
+  const root = findOpenSpecRoot(cwd)
+  if (root) {
+    ctx.ui.notify(
+      `Local openspec/ root found at ${root} — using configured defaultStore "${storeId}" instead (--store).`,
+      'info',
+    )
   }
 }
 interface TwTask {
@@ -230,6 +241,7 @@ async function routeToSkill(
 
   const brief = buildChangeBrief(jiraId, task)
   const storeId = getDefaultStoreId()
+  warnIfLocalRootOverridden(ctx, ctx.cwd, storeId)
   const storeSuffix = storeId ? ` --store "${storeId}"` : ''
   pi.sendUserMessage(`/skill:${skillName} ${brief}${storeSuffix}`)
 }
@@ -259,13 +271,76 @@ async function routeToApply(
   if (!branch) return
 
   const storeId = getDefaultStoreId()
+  warnIfLocalRootOverridden(ctx, ctx.cwd, storeId)
   const changeName = await findChangeName(pi, jiraId, storeId)
   const target = changeName ?? jiraId
   const storeSuffix = storeId ? ` --store "${storeId}"` : ''
   pi.sendUserMessage(`/skill:openspec-apply-change ${target}${storeSuffix}`)
 }
 
+// ── Native openspec tool + auto-context injection ────────────────────────────
+
+let cachedContextKey: string | null = null
+let cachedContextText = ''
+
 export default function (pi: ExtensionAPI) {
+  pi.registerTool({
+    name: 'openspec',
+    label: 'OpenSpec Specs',
+    description:
+      'Inspect OpenSpec spec-driven development state. Commands: status, doctor, context, list, show, validate. Always targets the configured defaultStore.',
+    promptSnippet:
+      'openspec: Query spec-driven development state (status, doctor, context, list, show, validate)',
+    parameters: Type.Object({
+      command: Type.String({
+        description: 'status, doctor, context, list, show, or validate',
+      }),
+      change: Type.Optional(
+        Type.String({ description: 'change name (for status/show)' }),
+      ),
+      json: Type.Optional(Type.Boolean({ description: 'return JSON output' })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const scope = await resolveQueryScope(pi, ctx.cwd)
+      const args = [params.command, ...scope.storeArgs]
+      if (params.json) args.push('--json')
+      if (params.change) args.push('--change', params.change)
+      const result = await pi.exec('openspec', args, { cwd: scope.cliCwd })
+      const output = stripAnsi(
+        result.code !== 0 ? result.stderr : result.stdout,
+      )
+      return {
+        content: [{ type: 'text', text: output || '(no output)' }],
+        details: { code: result.code },
+      }
+    },
+  })
+
+  pi.on('before_agent_start', async (event) => {
+    const cwd = event.systemPromptOptions.cwd
+    const scope = await resolveQueryScope(pi, cwd)
+    const cacheKey = `${scope.cliCwd}:${scope.storeArgs.join(' ')}`
+
+    if (cachedContextKey !== cacheKey) {
+      const result = await pi.exec(
+        'openspec',
+        ['context', ...scope.storeArgs],
+        {
+          cwd: scope.cliCwd,
+        },
+      )
+      cachedContextKey = cacheKey
+      cachedContextText = result.code === 0 ? stripAnsi(result.stdout) : ''
+    }
+    if (!cachedContextText) return
+
+    return {
+      systemPrompt: `${event.systemPrompt}\n\n[OpenSpec context]\n${cachedContextText}`,
+    }
+  })
+
+  registerStatusWidget(pi)
+
   pi.registerCommand('openspec-propose-jira', {
     description: 'Propose an OpenSpec change from a Jira ticket',
     handler: (args, ctx) => routeToSkill(pi, ctx, 'openspec-propose', args),

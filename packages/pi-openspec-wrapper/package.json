@@ -17,6 +17,8 @@
   },
   "files": [
     "index.ts",
+    "scope.ts",
+    "status-widget.ts",
     "README.md"
   ],
   "pi": {
@@ -25,6 +27,8 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
   }
 }
