@@ -17,7 +17,11 @@ Instead of typing a change name and description by hand, give a Jira ID — the 
 ## Requirements
 
 - `task` (taskwarrior) on `PATH`, synced with Jira (e.g. via bugwarrior), so `task jiraid:<ID> +jira export` returns a task with `jirasummary` / `jiradescription`.
-- The `openspec-propose` and `openspec-new-change` skills installed.
+- The `openspec-propose`, `openspec-new-change`, and `openspec-apply-change` skills installed.
+
+## Store resolution
+
+The openspec CLI only honors `--store <id>` when passed explicitly — without it, `openspec new change`/`list` resolve against the nearest repo-local `openspec/` root, even if `defaultStore` is set in `~/.config/openspec/config.json`. These commands read `defaultStore` from that file themselves and append `--store "<id>"` to every openspec CLI call and skill hand-off, so a configured default store is always used instead of a repo-local root.
 
 ## Usage
 

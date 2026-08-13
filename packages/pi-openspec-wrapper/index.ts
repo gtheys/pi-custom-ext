@@ -4,10 +4,29 @@
  * openspec skill. apply-jira also verifies/creates the feature branch first.
  */
 
+import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 
 // AIDEV-NOTE: kept local instead of depending on @gtheys/pi-planning — this
 // package must work standalone without that extension installed.
+
+// AIDEV-NOTE: `openspec new change`/`list` without --store resolve against the
+// nearest repo-local openspec/ root, not the configured defaultStore — the
+// CLI only honors --store when passed explicitly. Read it ourselves so this
+// wrapper always targets the user's default store.
+function getDefaultStoreId(): string | undefined {
+  try {
+    const configPath = join(homedir(), '.config', 'openspec', 'config.json')
+    const config = JSON.parse(readFileSync(configPath, 'utf-8')) as {
+      defaultStore?: string
+    }
+    return config.defaultStore
+  } catch {
+    return undefined
+  }
+}
 interface TwTask {
   uuid: string
   description: string
@@ -165,8 +184,11 @@ async function ensureBranch(
 async function findChangeName(
   pi: ExtensionAPI,
   jiraId: string,
+  storeId: string | undefined,
 ): Promise<string | null> {
-  const result = await pi.exec('openspec', ['list', '--json'], {})
+  const args = ['list', '--json']
+  if (storeId) args.push('--store', storeId)
+  const result = await pi.exec('openspec', args, {})
   if (result.code !== 0) return null
   try {
     const parsed = JSON.parse(result.stdout) as {
@@ -207,7 +229,9 @@ async function routeToSkill(
   }
 
   const brief = buildChangeBrief(jiraId, task)
-  pi.sendUserMessage(`/skill:${skillName} ${brief}`)
+  const storeId = getDefaultStoreId()
+  const storeSuffix = storeId ? ` --store "${storeId}"` : ''
+  pi.sendUserMessage(`/skill:${skillName} ${brief}${storeSuffix}`)
 }
 
 async function routeToApply(
@@ -234,9 +258,11 @@ async function routeToApply(
   const branch = await ensureBranch(pi, ctx, jiraId, task)
   if (!branch) return
 
-  const changeName = await findChangeName(pi, jiraId)
+  const storeId = getDefaultStoreId()
+  const changeName = await findChangeName(pi, jiraId, storeId)
   const target = changeName ?? jiraId
-  pi.sendUserMessage(`/skill:openspec-apply-change ${target}`)
+  const storeSuffix = storeId ? ` --store "${storeId}"` : ''
+  pi.sendUserMessage(`/skill:openspec-apply-change ${target}${storeSuffix}`)
 }
 
 export default function (pi: ExtensionAPI) {
