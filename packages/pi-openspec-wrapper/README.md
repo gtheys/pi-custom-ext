@@ -8,10 +8,12 @@ Instead of typing a change name and description by hand, give a Jira ID — the 
 
 | Command | Routes to |
 |---|---|
-| `/openspec-propose-jira <JIRA-ID>` | `/skill:openspec-propose` |
-| `/openspec-new-jira <JIRA-ID>` | `/skill:openspec-new-change` |
-| `/openspec-apply-jira <JIRA-ID>` | Verifies/creates the feature branch, then `/skill:openspec-apply-change` |
-| `/openspec-archive-jira <JIRA-ID>` | Resolves the matching change, then `/skill:openspec-archive-change` |
+| `/openspec-propose-jira <JIRA-ID> [--local]` | `/skill:openspec-propose` |
+| `/openspec-new-jira <JIRA-ID> [--local]` | `/skill:openspec-new-change` |
+| `/openspec-apply-jira <JIRA-ID> [--local]` | Verifies/creates the feature branch, then `/skill:openspec-apply-change` |
+| `/openspec-archive-jira <JIRA-ID> [--local]` | Resolves the matching change, then `/skill:openspec-archive-change` |
+
+All four commands use the configured `defaultStore` by default. Append `--local` to target the repo-local `openspec/` root instead (no `--store` is passed, so the openspec CLI resolves against the current repo).
 
 `/openspec-apply-jira` derives the branch name the same way as `implement-plan`'s `jira-branch.sh` (`<prefix>/<JIRA-ID>-<slug>`, issue-type → prefix map, `git town set-parent develop`), but sources the ticket from taskwarrior instead of `acli`. If already on the branch it proceeds; if the branch exists locally it checks it out; otherwise it creates it. It then looks up the matching `openspec list` change by Jira ID and hands off to `openspec-apply-change`.
 
@@ -35,7 +37,9 @@ Both resolve scope the same way: repo-local `openspec/` root first, then a regis
 
 ## Store resolution (Jira commands)
 
-The openspec CLI only honors `--store <id>` when passed explicitly — without it, `openspec new change`/`list` resolve against the nearest repo-local `openspec/` root, even if `defaultStore` is set in `~/.config/openspec/config.json`. The three Jira commands read `defaultStore` from that file themselves and append `--store "<id>"` to every openspec CLI call and skill hand-off, so a configured default store is always used instead of a repo-local root — with a heads-up notification if a local root exists and is being overridden.
+The openspec CLI only honors `--store <id>` when passed explicitly — without it, `openspec new change`/`list` resolve against the nearest repo-local `openspec/` root, even if `defaultStore` is set in `~/.config/openspec/config.json`.
+
+By default, the Jira commands read `defaultStore` from that file and append `--store "<id>"` to every openspec CLI call and skill hand-off, so a configured default store is used. With `--local`, the wrapper omits `--store` entirely, letting the CLI resolve the repo-local `openspec/` root. A heads-up notification is shown if a local root exists and is being overridden by the default store.
 
 ## Usage
 

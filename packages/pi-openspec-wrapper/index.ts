@@ -20,6 +20,23 @@ function stripAnsi(text: string): string {
   return text.replace(/\x1b\[[0-9;]*m/g, '').trim()
 }
 
+interface JiraCommandArgs {
+  jiraId: string
+  useLocal: boolean
+}
+
+/** Parse `<JIRA-ID> [--local]` from a command argument string.
+ * AIDEV-NOTE: `--local` forces the wrapper to target the repo-local openspec/
+ * root instead of the configured defaultStore. The openspec CLI resolves the
+ * root from cwd when --store is omitted. */
+function parseJiraCommandArgs(args: string): JiraCommandArgs {
+  const tokens = args.trim().split(/\s+/).filter(Boolean)
+  const useLocal = tokens.includes('--local')
+  const filtered = tokens.filter((t) => t !== '--local')
+  const jiraId = filtered[0] ?? ''
+  return { jiraId: jiraId.toUpperCase(), useLocal }
+}
+
 // AIDEV-NOTE: kept local instead of depending on @gtheys/pi-planning — this
 // package must work standalone without that extension installed.
 
@@ -243,12 +260,13 @@ async function routeToSkill(
   skillName: string,
   args: string,
 ) {
-  const jiraId = args.trim().toUpperCase()
+  const { jiraId, useLocal } = parseJiraCommandArgs(args)
+  let commandName = 'openspec-new-jira'
+  if (skillName === 'openspec-propose') {
+    commandName = 'openspec-propose-jira'
+  }
   if (!jiraId) {
-    ctx.ui.notify(
-      `Usage: /${skillName === 'openspec-propose' ? 'openspec-propose-jira' : 'openspec-new-jira'} <JIRA-ID>`,
-      'warning',
-    )
+    ctx.ui.notify(`Usage: /${commandName} <JIRA-ID> [--local]`, 'warning')
     return
   }
 
@@ -256,9 +274,12 @@ async function routeToSkill(
   if (!task) return
 
   const brief = buildChangeBrief(jiraId, task)
-  const storeId = getDefaultStoreId()
-  warnIfLocalRootOverridden(ctx, ctx.cwd, storeId)
-  const storeSuffix = storeId ? ` --store "${storeId}"` : ''
+  let storeSuffix = ''
+  if (!useLocal) {
+    const storeId = getDefaultStoreId()
+    warnIfLocalRootOverridden(ctx, ctx.cwd, storeId)
+    if (storeId) storeSuffix = ` --store "${storeId}"`
+  }
   pi.sendUserMessage(`/skill:${skillName} ${brief}${storeSuffix}`)
 }
 
@@ -267,9 +288,9 @@ async function routeToApply(
   ctx: CommandContext,
   args: string,
 ) {
-  const jiraId = args.trim().toUpperCase()
+  const { jiraId, useLocal } = parseJiraCommandArgs(args)
   if (!jiraId) {
-    ctx.ui.notify('Usage: /openspec-apply-jira <JIRA-ID>', 'warning')
+    ctx.ui.notify('Usage: /openspec-apply-jira <JIRA-ID> [--local]', 'warning')
     return
   }
 
@@ -279,11 +300,15 @@ async function routeToApply(
   const branch = await ensureBranch(pi, ctx, jiraId, task)
   if (!branch) return
 
-  const storeId = getDefaultStoreId()
-  warnIfLocalRootOverridden(ctx, ctx.cwd, storeId)
+  let storeId: string | undefined
+  let storeSuffix = ''
+  if (!useLocal) {
+    storeId = getDefaultStoreId()
+    warnIfLocalRootOverridden(ctx, ctx.cwd, storeId)
+    if (storeId) storeSuffix = ` --store "${storeId}"`
+  }
   const changeName = await findChangeName(pi, jiraId, storeId)
   const target = changeName ?? jiraId
-  const storeSuffix = storeId ? ` --store "${storeId}"` : ''
   pi.sendUserMessage(`/skill:openspec-apply-change ${target}${storeSuffix}`)
 }
 
@@ -292,27 +317,38 @@ async function routeToArchive(
   ctx: CommandContext,
   args: string,
 ) {
-  const jiraId = args.trim().toUpperCase()
+  const { jiraId, useLocal } = parseJiraCommandArgs(args)
   if (!jiraId) {
-    ctx.ui.notify('Usage: /openspec-archive-jira <JIRA-ID>', 'warning')
+    ctx.ui.notify(
+      'Usage: /openspec-archive-jira <JIRA-ID> [--local]',
+      'warning',
+    )
     return
   }
 
   const task = await fetchJiraTicketOrNotify(pi, ctx, jiraId)
   if (!task) return
 
-  const storeId = getDefaultStoreId()
-  warnIfLocalRootOverridden(ctx, ctx.cwd, storeId)
+  let storeId: string | undefined
+  let storeSuffix = ''
+  let storeLabel = 'the local root'
+  if (!useLocal) {
+    storeId = getDefaultStoreId()
+    warnIfLocalRootOverridden(ctx, ctx.cwd, storeId)
+    if (storeId) {
+      storeSuffix = ` --store "${storeId}"`
+      storeLabel = `store "${storeId}"`
+    }
+  }
   const changeName = await findChangeName(pi, jiraId, storeId)
   if (!changeName) {
     ctx.ui.notify(
-      `No single openspec change matches "${jiraId}" in ${storeId ? `store "${storeId}"` : 'the local root'}.`,
+      `No single openspec change matches "${jiraId}" in ${storeLabel}.`,
       'error',
     )
     return
   }
 
-  const storeSuffix = storeId ? ` --store "${storeId}"` : ''
   pi.sendUserMessage(
     `/skill:openspec-archive-change ${changeName}${storeSuffix}`,
   )
