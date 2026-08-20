@@ -34,7 +34,8 @@
       "./packages/pi-sem/index.ts",
       "./packages/pi-tool-pills/index.ts",
       "./packages/pi-desktop-notify/index.ts",
-      "./packages/pi-teams-transcript/index.ts"
+      "./packages/pi-teams-transcript/index.ts",
+      "./packages/pi-pr-digest/index.ts"
     ],
     "skills": [
       "./skills"
@@ -50,7 +51,7 @@
     "@gtheys/pi-per-commit-spend": "latest",
     "@mariozechner/pi-coding-agent": "npm:@earendil-works/pi-coding-agent@latest",
     "@mariozechner/pi-tui": "npm:@earendil-works/pi-tui@latest",
-    "@shikijs/cli": "^4.3.1",
+    "@shikijs/cli": "^4.4.3",
     "@sting8k/pi-vcc": "^0.3.18",
     "@tomooshi/caveman-milk-pi": "^0.2.0",
     "@tomooshi/condensed-milk-pi": "^1.9.0",
@@ -58,12 +59,12 @@
     "graphify-pi": "^0.3.0",
     "pi-intercom": "^0.6.0",
     "pi-session-switch": "^0.3.0",
-    "shiki": "^4.3.1"
+    "shiki": "^4.4.3"
   },
   "devDependencies": {
-    "@earendil-works/pi-agent-core": "^0.84.1",
-    "@earendil-works/pi-coding-agent": "^0.84.1",
-    "@earendil-works/pi-tui": "^0.84.1",
+    "@earendil-works/pi-agent-core": "^0.84.2",
+    "@earendil-works/pi-coding-agent": "^0.84.2",
+    "@earendil-works/pi-tui": "^0.84.2",
     "@biomejs/biome": "2.4.13",
     "@types/diff": "latest",
     "lefthook": "2.1.6",

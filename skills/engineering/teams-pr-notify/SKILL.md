@@ -7,6 +7,10 @@ description: >-
   Trigger when the user says "notify teams", "send PR to teams", "share PR in
   teams", "post PR review to teams", "tell teams about this PR", or similar.
   Works for any PR the user has just created or wants to surface for review.
+  Also supports a digest mode: list the user's outstanding PRs across the
+  Salary-Hero org, report which have human comments/reviews, and build a
+  reviewer-request table for the ones with none. Trigger on "my outstanding
+  PRs", "PRs waiting for review", "PR digest", "who reviewed my PRs".
 ---
 
 # Teams PR Review Notification
@@ -188,6 +192,69 @@ Use this as the starting point and fill in the placeholders:
   ]
 }
 ```
+
+## Mode 2 — Outstanding PR digest
+
+Use when the user asks for their open PRs / review status across the org, not
+a single-PR notification.
+
+### Step 1 — List open PRs
+
+If the `pr_digest` tool (pi-pr-digest extension) is available, call it — it
+does Steps 1–3 in one go (search, per-PR fetch, bot filtering,
+classification). Otherwise fall back to the raw commands below.
+
+```bash
+gh search prs --author @me --owner Salary-Hero --state=open --limit 50 \
+  --json repository,number,title,url
+```
+
+### Step 2 — Fetch comments and reviews per PR
+
+```bash
+gh pr view <PR_URL> --json comments,reviews,body
+```
+
+**Filter out bots before judging.** Ignore authors whose login ends in `[bot]`
+or matches known bots: `sonarqubecloud`, `copilot-pull-request-reviewer`,
+`github-actions`, `dependabot`, `codecov`. Only human comments and human
+reviews count.
+
+### Step 3 — Classify
+
+- **Has human comments** → tell the user which PR, who commented, and any
+  review states (APPROVED / CHANGES_REQUESTED / COMMENTED). These do NOT go
+  in the table.
+- **No human comments** → goes in the reviewer-request table. Human reviews
+  (approvals etc.) do NOT exclude a PR from the table — they fill the
+  "Reviews so far" column.
+
+### Step 4 — Build the table (chat output)
+
+For each silent PR write a 1-line plain-text description from the title/body.
+Markdown table:
+
+| PR | Description | Reviews so far | Ask |
+|----|-------------|----------------|-----|
+| [#217](url) repo | short desc | @alice (approved) | needs a 2nd reviewer |
+| [#62](url) repo | short desc | — | needs 2 reviewers |
+
+Reviewers column: human reviewers with their state. Empty → "—".
+Ask column: one human review → "asking for a second reviewer"; zero → "we
+need 2 reviewers".
+
+### Step 5 — Optional Teams post
+
+Only if the user asks to notify the channel. Adaptive Card v1.2 has no table
+element — render one `TextBlock` per PR:
+
+```
+• [#217](<url>) repo — <short desc> — reviewed by @alice, needs 2nd reviewer
+• [#62](<url>) repo — <short desc> — needs 2 reviewers
+```
+
+Header `TextBlock`: "Outstanding PRs awaiting review". POST via the same
+`TEAMS_PR_WEBHOOK_URL` flow (Step 4 of Mode 1).
 
 ## Notes
 

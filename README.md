@@ -44,7 +44,8 @@ pi-my-rifle-ext/
 │   ├── pi-sem/              # pi-sem semantic code tools
 │   ├── pi-tool-pills/       # tool pill badges + Shiki diff rendering
 │   ├── pi-desktop-notify/   # /notify command
-│   └── pi-teams-transcript/ # teams_transcript tool (MS Graph)
+│   ├── pi-teams-transcript/ # teams_transcript tool (MS Graph)
+│   └── pi-pr-digest/        # pr_digest tool + /pr-digest command (gh CLI)
 ├── skills/            # Skills (each in a subdirectory with SKILL.md)
 │   ├── engineering/
 │   ├── productivity/
@@ -135,6 +136,7 @@ pi install git:github.com/DietrichGebert/ponytail
 | [`pi-openspec-wrapper`](packages/pi-openspec-wrapper/) | `/openspec-propose-jira` and `/openspec-new-jira` — drive the `openspec-propose`/`openspec-new-change` skills from a Jira ticket fetched via taskwarrior | Planning |
 | [`pi-context`](packages/pi-context/) | `/context` command — visualize current context/token usage as a colored grid overlay | UI Enhancement |
 | [`pi-teams-transcript`](packages/pi-teams-transcript/) | `teams_transcript` tool — list/download Microsoft Teams meeting transcripts via Microsoft Graph (app-only auth) ⚠️ *work in progress* | Integrations |
+| [`pi-pr-digest`](packages/pi-pr-digest/) | `pr_digest` tool + `/pr-digest` command — outstanding GitHub PRs in an org with human comment/review status (bots filtered) and reviewer-request table | Integrations |
 
 ### Companion Packages (installed separately)
 
