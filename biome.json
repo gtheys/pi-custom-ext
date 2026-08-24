@@ -26,6 +26,18 @@
       }
     }
   },
+  "overrides": [
+    {
+      "includes": ["**/*.d.mts", "**/*.d.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    }
+  ],
   "javascript": {
     "formatter": {
       "quoteStyle": "single",
