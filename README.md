@@ -35,6 +35,7 @@ This is a [bun](https://bun.sh) workspace monorepo. Each extension group lives u
 pi-my-rifle-ext/
 ├── packages/          # Workspace packages (each a pi extension group)
 │   ├── pi-bootstrap/        # Startup bootstrap (symlinks AGENTS.md)
+│   ├── pi-ask-user-question/ # ask_user_question tool (interactive TUI dialogs)
 │   ├── pi-review/           # review + sonarqube + pr-quality
 │   ├── pi-test-runner/      # run_tests tool + /test-runner command
 │   ├── pi-interactive-subagents/ # subagent orchestration (scout/worker/planner/…)
@@ -121,6 +122,7 @@ pi install git:github.com/DietrichGebert/ponytail
 | Package | Description | Category |
 |---------|-------------|----------|
 | [`pi-bootstrap`](packages/pi-bootstrap/) | Startup bootstrap — symlinks `agents/AGENTS.md` to `~/.pi/agent/AGENTS.md` | Bootstrap |
+| [`pi-ask-user-question`](packages/pi-ask-user-question/) | `ask_user_question` tool — pauses execution for interactive text / single-select / multi-select questions with an Other free-text escape hatch | Interaction |
 | [`pi-review`](packages/pi-review/) (review) | `/review` command — code review for PRs, branches, uncommitted changes, or specific commits with semantic tool guidance | Code Review |
 | [`pi-review`](packages/pi-review/) (sonarqube) | `/sonarqube` command — fetches SonarCloud coverage gaps and quality issues for a PR, generates actionable report | Code Quality |
 | [`pi-review`](packages/pi-review/) (pr-quality) | `/pr-quality` command — combines GitHub PR review triage + SonarCloud analysis into a unified action plan | Code Quality |

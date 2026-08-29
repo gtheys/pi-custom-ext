@@ -29,6 +29,15 @@
         "typescript": "5.9.3",
       },
     },
+    "packages/pi-ask-user-question": {
+      "name": "@gtheys/pi-ask-user-question",
+      "version": "0.1.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
+        "@sinclair/typebox": "*",
+      },
+    },
     "packages/pi-bootstrap": {
       "name": "@gtheys/pi-bootstrap",
       "version": "0.1.1",
@@ -283,6 +292,8 @@
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.28.2", "", { "os": "win32", "cpu": "x64" }, "sha512-5ebpxr3nWMzrL/rnUI755Jkuee0bHL/Gq0WTF9lvcpv73wAp5eu8MfBUgWK9bhWvZjj7yX8etf/8tI8Ney695g=="],
 
     "@google/genai": ["@google/genai@1.52.0", "", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^4.6.2", "protobufjs": "^7.5.4", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-gwSvbpiN/17O9TbsqSsE/OzZcpv5Fo4RQjdngGgogtuB9RsyJ8ZHhX5KjHj1bp5N9snN2eK8LDGXSaWW2hof8Q=="],
+
+    "@gtheys/pi-ask-user-question": ["@gtheys/pi-ask-user-question@workspace:packages/pi-ask-user-question"],
 
     "@gtheys/pi-bootstrap": ["@gtheys/pi-bootstrap@workspace:packages/pi-bootstrap"],
 
