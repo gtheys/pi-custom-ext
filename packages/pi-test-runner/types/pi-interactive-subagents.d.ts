@@ -1,5 +1,5 @@
 /**
- * Local type declarations for pi-interactive-subagents' programmatic API.
+ * Local type declarations for @gtheys/pi-interactive-subagents' programmatic API.
  *
  * This file shields pi-test-runner from typechecking the source of
  * pi-interactive-subagents, which is built against a different version of the

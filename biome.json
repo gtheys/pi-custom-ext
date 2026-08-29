@@ -36,6 +36,15 @@
           }
         }
       }
+    },
+    {
+      "includes": ["packages/pi-interactive-subagents/**"],
+      "linter": {
+        "enabled": false
+      },
+      "formatter": {
+        "enabled": false
+      }
     }
   ],
   "javascript": {

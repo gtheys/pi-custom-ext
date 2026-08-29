@@ -12,9 +12,13 @@
     "paths": {
       "@mariozechner/pi-coding-agent": ["./node_modules/@earendil-works/pi-coding-agent"],
       "@mariozechner/pi-tui": ["./node_modules/@earendil-works/pi-tui"],
-      "pi-interactive-subagents": ["./packages/pi-test-runner/types/pi-interactive-subagents.d.ts"]
+      "@gtheys/pi-interactive-subagents": ["./packages/pi-test-runner/types/pi-interactive-subagents.d.ts"]
     }
   },
   "include": ["packages/**/*.ts"],
-  "exclude": ["packages/pi-sem/node_modules/**", "node_modules/**"]
+  "exclude": [
+    "packages/pi-sem/node_modules/**",
+    "packages/pi-interactive-subagents/**/*.ts",
+    "node_modules/**"
+  ]
 }

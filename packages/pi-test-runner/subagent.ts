@@ -13,7 +13,7 @@ import {
   type SubagentInput,
   type SubagentResult,
   watchSubagent,
-} from 'pi-interactive-subagents'
+} from '@gtheys/pi-interactive-subagents'
 
 export interface StartTestSubagentOptions {
   name: string

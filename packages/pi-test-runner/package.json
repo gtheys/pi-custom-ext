@@ -24,7 +24,7 @@
     "README.md"
   ],
   "dependencies": {
-    "pi-interactive-subagents": "file:../../../pi-interactive-subagents"
+    "@gtheys/pi-interactive-subagents": "workspace:*"
   },
   "pi": {
     "extensions": [

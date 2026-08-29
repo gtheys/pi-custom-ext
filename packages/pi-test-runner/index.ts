@@ -25,9 +25,9 @@ import type {
 } from '@earendil-works/pi-coding-agent'
 import { getAgentDir } from '@earendil-works/pi-coding-agent'
 import { Container, Text } from '@earendil-works/pi-tui'
+import type { SubagentResult } from '@gtheys/pi-interactive-subagents'
 import { type Static, Type } from '@sinclair/typebox'
 import { Value } from '@sinclair/typebox/value'
-import type { SubagentResult } from 'pi-interactive-subagents'
 import { buildRunCommand, discoverTestScripts } from './discover.ts'
 import { startTestSubagent } from './subagent.ts'
 
