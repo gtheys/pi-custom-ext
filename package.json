@@ -22,7 +22,6 @@
   "pi": {
     "extensions": [
       "./packages/pi-bootstrap/index.ts",
-      "./packages/pi-context/context.ts",
       "./packages/pi-review/review/review.ts",
       "./packages/pi-review/sonarqube/sonarqube.ts",
       "./packages/pi-review/pr-quality/index.ts",
@@ -31,7 +30,6 @@
       "./packages/pi-fastcontext/index.ts",
       "./packages/pi-planning/plan-tools/index.ts",
       "./packages/pi-planning/implement-plan/index.ts",
-      "./packages/pi-openspec-wrapper/index.ts",
       "./packages/pi-sem/index.ts",
       "./packages/pi-tool-pills/index.ts",
       "./packages/pi-desktop-notify/index.ts",

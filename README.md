@@ -35,12 +35,11 @@ This is a [bun](https://bun.sh) workspace monorepo. Each extension group lives u
 pi-my-rifle-ext/
 ├── packages/          # Workspace packages (each a pi extension group)
 │   ├── pi-bootstrap/        # Startup bootstrap (symlinks AGENTS.md)
-│   ├── pi-context/          # /context command
 │   ├── pi-review/           # review + sonarqube + pr-quality
-│   ├── pi-test-runner/      # run_tests tool + /run-tests
+│   ├── pi-test-runner/      # run_tests tool + /test-runner command
+│   ├── pi-interactive-subagents/ # subagent orchestration (scout/worker/planner/…)
 │   ├── pi-fastcontext/      # fast_context_search tool + /fastcontext
 │   ├── pi-planning/         # plan-tools + implement-plan
-│   ├── pi-openspec-wrapper/ # /openspec-propose-jira + /openspec-new-jira
 │   ├── pi-sem/              # pi-sem semantic code tools
 │   ├── pi-tool-pills/       # tool pill badges + Shiki diff rendering
 │   ├── pi-desktop-notify/   # /notify command
@@ -48,7 +47,6 @@ pi-my-rifle-ext/
 │   └── pi-pr-digest/        # pr_digest tool + /pr-digest command (gh CLI)
 ├── skills/            # Skills (each in a subdirectory with SKILL.md)
 │   ├── engineering/
-│   ├── productivity/
 │   └── tools/
 ├── prompts/          # Prompt templates / slash commands (.md files)
 ├── themes/           # Theme JSON files
@@ -129,12 +127,11 @@ pi install git:github.com/DietrichGebert/ponytail
 | [`pi-tool-pills`](packages/pi-tool-pills/) | Colored pill badges for tool headers + Shiki-powered syntax-highlighted diffs for write/edit | UI Enhancement |
 | [`pi-sem`](packages/pi-sem/) | Semantic code analysis tools — entity-level diff, impact analysis, context lookup, and blame via `pi-sem` | Code Analysis |
 | [`pi-desktop-notify`](packages/pi-desktop-notify/) | `/notify` command — desktop notifications (notify-send) when pi finishes work after an idle period | Notifications |
-| [`pi-test-runner`](packages/pi-test-runner/) | `run_tests` tool — discovers and runs JS/TS tests from `package.json` using an isolated subagent; results injected back when done ⚠️ *experimental/WIP* | Testing |
+| [`pi-test-runner`](packages/pi-test-runner/) | `run_tests` tool + `/test-runner` command — runs JS/TS tests from `package.json` in an isolated pi-interactive-subagents worker; visible in the orchestrator's subagents widget; results injected back when done ⚠️ *experimental/WIP* | Testing |
+| [`pi-interactive-subagents`](packages/pi-interactive-subagents/) | `subagent` tool + `/plan` orchestration — spawn scout/worker/planner sub-agents in cmux/tmux/zellij/wezterm/herdr panes, with a live status widget and programmatic `launchSubagent`/`watchSubagent` API | Orchestration |
 | [`pi-fastcontext`](packages/pi-fastcontext/) | `fast_context_search` tool + `/fastcontext` command — fast read-only codebase search via local Microsoft FastContext (llama.cpp); returns compact `file:line` citations | Code Search |
 | [`pi-planning`](packages/pi-planning/) (plan-tools) | `/plan` command + taskwarrior tools (`tw_get_ticket`, `tw_get_spec_task`, `tw_get_phases`, `tw_get_impl_tasks`, `resolve_spec_path`, `tw_create_spec_task`, `tw_create_phase`, `tw_create_impl_task`) for spec/plan creation | Planning |
 | [`pi-planning`](packages/pi-planning/) (implement-plan) | `/implement` command + taskwarrior tools (`tw_execution_plan`, `tw_advance_task`, `tw_phase_checkpoint`) for driving implementation from a spec | Planning |
-| [`pi-openspec-wrapper`](packages/pi-openspec-wrapper/) | `/openspec-propose-jira` and `/openspec-new-jira` — drive the `openspec-propose`/`openspec-new-change` skills from a Jira ticket fetched via taskwarrior | Planning |
-| [`pi-context`](packages/pi-context/) | `/context` command — visualize current context/token usage as a colored grid overlay | UI Enhancement |
 | [`pi-teams-transcript`](packages/pi-teams-transcript/) | `teams_transcript` tool — list/download Microsoft Teams meeting transcripts via Microsoft Graph (app-only auth) ⚠️ *work in progress* | Integrations |
 | [`pi-pr-digest`](packages/pi-pr-digest/) | `pr_digest` tool + `/pr-digest` command — outstanding GitHub PRs in an org with human comment/review status (bots filtered) and reviewer-request table | Integrations |
 
@@ -158,34 +155,31 @@ These complementary pi packages are **not** part of this repo. Install them with
 
 | Skill | Description |
 |-------|-------------|
-| `aws-architecture-diagram` | Generate validated AWS architecture diagrams as draw.io XML using official AWS4 icon libraries; supports codebase analysis and interactive brainstorm modes |
 | `coding-standards` | Universal coding standards, best practices, and patterns for TypeScript, JavaScript, React, and Node.js development |
-| `create-plan` | Create detailed implementation plans from Jira tickets via taskwarrior |
+| `create-plan` | Create detailed implementation plans from Jira tickets via taskwarrior; codebase research runs in parallel `scout` subagents |
 | `debug` | Bootstrap a debugging session — investigates pod logs, DB state, and git history without editing files |
 | `feature-ticket` | Interview-driven feature ticket creation for personal projects; records as Taskwarrior ticket |
 | `gh-unresolved-comments` | Fetch unresolved PR review comments, classify as VALID/INVALID, auto-resolve stale threads, produce resolution plan |
-| `implement-plan` | Execute an approved implementation spec by driving work from taskwarrior phase/subtask tree |
+| `implement-plan` | Execute an approved implementation spec from the taskwarrior phase/subtask tree; each subtask is implemented by a sequential `worker` subagent |
 | `iterate-plan` | Iterate on existing implementation specs with thorough research and updates |
 | `notes-locator` | Discover relevant documents in `notes/` or `$LLM_NOTES_ROOT` for a given topic or task |
 | `pr-description` | Generate comprehensive PR descriptions following repository templates |
 | `tdd-workflow` | TDD workflow enforcement with 80%+ coverage — unit, integration, and E2E |
 | `teams-pr-notify` | Send PR review request as Adaptive Card to a Microsoft Teams channel via Power Automate |
-| `worktrunk` | `wt` CLI for git worktree workflows — switching, creating, merging, hooks, LLM commit generation |
 
 ### Tools
 
 | Skill | Description |
 |-------|-------------|
 | `acli` | Atlassian CLI reference — Jira work items, projects, boards, sprints, filters, dashboards, org admin |
+| `atlas` | Database schema management and migrations with Atlas CLI — generate, diff, lint, test, and apply migrations; ORM schema support |
+| `aws-architecture-diagram` | Generate validated AWS architecture diagrams as draw.io XML using official AWS4 icon libraries; supports codebase analysis and interactive brainstorm modes |
 | `cli-microsoft365` | CLI for Microsoft 365 — SharePoint, Entra ID, Teams, Power Platform, Graph API |
 | `devctl` | `devctl` CLI guide for the SalaryHero local Kubernetes dev environment (minikube-based) |
+| `jira-status-timestamps` | Set up Jira status-entry timestamps via custom datetime fields and Automation rules |
+| `qmd` | Search local markdown knowledge bases, notes, docs, and wikis with QMD |
 | `sem` | Entity-aware code change analysis via pi-sem tools — diff, impact, context, blame, history |
-
-### Productivity
-
-| Skill | Description |
-|-------|-------------|
-| `writing-great-skills` | Reference for writing and editing skills well — vocabulary and principles |
+| `worktrunk` | `wt` CLI for git worktree workflows — switching, creating, merging, hooks, LLM commit generation |
 
 ---
 
