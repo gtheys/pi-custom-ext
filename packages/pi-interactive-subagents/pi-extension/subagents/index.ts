@@ -1565,13 +1565,19 @@ export default function subagentsExtension(pi: ExtensionAPI) {
     runningSubagents.clear()
   })
 
-  // Tools denied via PI_DENY_TOOLS env var (set by parent agent based on frontmatter)
-  const deniedTools = new Set(
-    (process.env.PI_DENY_TOOLS ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
-  )
+  // Tools denied via PI_DENY_TOOLS env var (set by parent agent based on frontmatter).
+  // Only honor this in actual subagent sessions (identified by PI_SUBAGENT_ID/SESSION);
+  // in the main Pi session PI_DENY_TOOLS should not suppress tools.
+  const isSubagentSession =
+    !!process.env.PI_SUBAGENT_ID || !!process.env.PI_SUBAGENT_SESSION
+  const deniedTools = isSubagentSession
+    ? new Set(
+        (process.env.PI_DENY_TOOLS ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      )
+    : new Set<string>()
 
   const shouldRegister = (name: string) => !deniedTools.has(name)
 
