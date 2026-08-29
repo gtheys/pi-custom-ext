@@ -157,6 +157,8 @@ Before the first edit, load:
 
 These are mandatory. If either fails to load, surface it before proceeding.
 
+The execution loop spawns `worker` subagents via the `subagent` tool from the pi-interactive-subagents extension. If that extension is not loaded (no `subagent` tool available, or no terminal multiplexer), fall back to implementing subtasks directly in the main session — the flow is otherwise identical.
+
 ## Step 6 — The execution loop
 
 For each phase (starting from `plan.currentPhase`), in order:
@@ -170,10 +172,35 @@ tw_advance_task({ uuid: "<phase-uuid>", state: "inprogress", description: "1. Ph
 ### 5b — For each subtask under that phase (starting from `plan.currentSubtask`):
 
 1. `tw_advance_task({ uuid: "<subtask-uuid>", state: "inprogress", description: "1.1 ..." })`
-2. Read all files the subtask touches — fully, not partial reads.
+2. Read the spec section for this subtask fully, and skim the files it touches — enough to write a precise worker task.
 3. Reconcile spec with reality. If they disagree, **stop** and report (template below).
-4. Write tests first (per `tdd-workflow`), then implementation.
-5. Run tests: `run_tests({})` — wait for results before continuing.
+4. **Spawn a `worker` subagent** to implement the subtask:
+
+   ```
+   subagent({
+     name: "worker: <N.M> <title>",
+     agent: "worker",
+     task: [
+       "Subtask: <N.M> <title>",
+       "Spec file: <absolute spec path> — read the section for this subtask fully before editing.",
+       "",
+       "<Spec excerpt: changes required, code snippets, constraints, anti-patterns>",
+       "",
+       "Files: <files to create/modify>",
+       "Acceptance criteria: <from the spec>",
+       "",
+       "Write tests first, then implementation. Run the relevant tests via bash and show real output.",
+       "Do NOT commit. Do NOT touch taskwarrior. Report changed files and test results in your final message.",
+     ].join("\n"),
+   })
+   ```
+
+   The `subagent` tool returns immediately — **end your turn** and wait for the `subagent_result` steer message. **Workers run sequentially: one subtask at a time, never two workers in the same repo at once.**
+
+5. When the worker's result arrives:
+   - If it reported missing context or a spec mismatch, resolve with the user before re-spawning — do not let the worker guess.
+   - Review the reported changes (`git diff` and/or read the changed files).
+   - Run tests: `run_tests({})` — wait for results before continuing.
 6. Check off the matching item in the spec file (`- [ ]` → `- [x]`).
 7. `tw_advance_task({ uuid: "<subtask-uuid>", state: "done", description: "1.1 ..." })`
 

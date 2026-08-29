@@ -129,22 +129,37 @@ Based on this ticket, I understand we need to [accurate summary].
 
 ## Step 1: Research & Discovery
 
-Before asking the user any questions, research the codebase:
+Before asking the user any questions, research the codebase **by spawning `scout` subagents** via the `subagent` tool (from the pi-interactive-subagents extension). Do not do deep codebase research in the main session yourself — scouts do it.
 
-1. **Spawn research tasks** using available skills:
-   - `fast_context_search` / `grep` / `find` — find all files related to the ticket
-   - `read` / `sem_context` — understand current implementation
-   - `fast_context_search` / `grep` — find similar features to model after
-   - `/skill:notes-locator` — find any existing notes about this feature
+**Fallback:** if the `subagent` tool is not available (extension not loaded, no terminal multiplexer), do the research in the main session with `fast_context_search` / `grep` / `read` / `sem_context` — the rest of the flow is identical.
 
-2. **Read all files identified by research** FULLY — never read files partially.
+1. **Decompose research into focused scout tasks** — one scout per focus area. Typical areas:
+   - Files/modules related to the ticket (map the territory + read the important files)
+   - Similar existing features to model after
+   - Conventions, patterns, and test setup for the affected area
+   - Existing notes/specs about this feature (scout can grep the notes dir)
 
-3. **Analyze and verify understanding**:
-   - Cross-reference the Jira description/acceptance criteria with actual code
+2. **Spawn the scouts** — parallel is fine, they are read-only:
+
+   ```
+   subagent({
+     name: "scout: <focus area>",
+     agent: "scout",
+     task: "Ticket context: <jirasummary>\n\nExplore <specific area/question>. Read the relevant files FULLY. Report findings with file:line references using your output template.",
+   })
+   ```
+
+   The `subagent` tool returns immediately. **End your turn after spawning** — the harness steers each `subagent_result` back into this session as a steer message when a scout finishes.
+
+3. **Wait for ALL scout results** before proceeding. If a scout's report is thin or contradicts the ticket, spawn a follow-up scout for that specific gap.
+
+4. **Analyze and verify understanding**:
+   - Cross-reference the Jira description/acceptance criteria with the scout findings
    - Identify discrepancies between ticket and codebase
    - Note assumptions that need verification
+   - Use `read` / `sem_context` yourself only to verify a specific load-bearing claim from a scout report
 
-4. **Present informed understanding and focused questions**:
+5. **Present informed understanding and focused questions**:
 
    ```
    Based on the ticket and my research of the codebase, I understand we need to [accurate summary].
@@ -165,17 +180,16 @@ Before asking the user any questions, research the codebase:
 
 After getting initial clarifications:
 
-1. **If the user corrects a misunderstanding**, spawn new research to verify — don't just accept it.
+1. **If the user corrects a misunderstanding**, spawn a new scout to verify — don't just accept it.
 
 2. **Create a research todo list** with markdown checkboxes to track exploration.
 
-3. **Use skills for comprehensive research**:
-   - `fast_context_search` / `grep` / `find` — find more specific files
-   - `read` / `sem_context` — understand implementation details
-   - `fast_context_search` / `grep` — find similar implementations
-   - `/skill:notes-locator` — find research, specs, or decisions
+3. **Spawn follow-up scouts** for comprehensive research:
+   - More specific files/areas the first round missed
+   - Implementation details that affect the design
+   - Similar implementations to copy patterns from
 
-4. **Wait for ALL research to complete** before proceeding.
+4. **Wait for ALL scout results** before proceeding.
 
 5. **Present findings and design options** with pros/cons, referencing specific file:line locations.
 
@@ -301,11 +315,10 @@ For local features, prepend the feature ticket and substitute `FEATURE-<uuid8>` 
 
 This skill works with:
 
+- `subagent` tool (pi-interactive-subagents) — **Required.** Spawns `scout` agents for codebase research in Steps 1 and 2. Requires a terminal multiplexer (see pi-interactive-subagents setup).
 - `/skill:feature-ticket` — **Required for local features (Step F).** Owns the interview and taskwarrior ticket creation; create-plan delegates to it instead of re-implementing the flow.
-- `/skill:notes-locator` — Find existing specs, research docs, tickets, and PR descriptions in the notes directory.
-- `fast_context_search` / `grep` / `find` — Find source files related to the ticket.
-- `read` / `sem_context` — Understand current implementation details.
-- `fast_context_search` / `grep` — Find similar features to model after.
+- `/skill:notes-locator` — Find existing specs, research docs, tickets, and PR descriptions in the notes directory (quick main-session lookups).
+- `read` / `sem_context` — Verify specific load-bearing claims from scout reports.
 - `/skill:implement-plan` — When the spec is approved and ready for development.
 
 ## Important Guidelines
@@ -323,11 +336,11 @@ This skill works with:
 
 ## Research Best Practices
 
-1. **Spawn multiple skills in parallel** for efficiency
-2. **Each skill should be focused** on a specific area
-3. **Be EXTREMELY specific about directories** — if the ticket mentions "WUI", specify `humanlayer-wui/`; never use generic terms
-4. **Wait for all research to complete** before synthesizing
-5. **Verify results** — if a skill returns unexpected results, spawn follow-up research
+1. **Spawn multiple scouts in parallel** for efficiency — they are read-only and cannot conflict
+2. **Each scout should be focused** on a specific area
+3. **Be EXTREMELY specific about directories** — if the ticket mentions "WUI", tell the scout `humanlayer-wui/`; never use generic terms
+4. **Wait for all scout results** before synthesizing
+5. **Verify results** — if a scout returns unexpected results, spawn a follow-up scout for that specific gap
 
 ## Common Implementation Patterns
 

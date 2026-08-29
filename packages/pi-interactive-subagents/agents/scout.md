@@ -4,7 +4,6 @@ description: Fast codebase reconnaissance - maps existing code, conventions, and
 tools: read, bash
 deny-tools: claude
 model: anthropic/claude-haiku-4-5
-output: context.md
 spawning: false
 auto-exit: true
 system-prompt: append
@@ -67,7 +66,7 @@ cat tsconfig.json 2>/dev/null
 
 ## Output
 
-Use the `write` tool to save your findings. The orchestrator provides the target path in your task (typically `.pi/plans/YYYY-MM-DD-<name>/scout-context.md`). Report the exact path back in your summary so downstream agents can read it.
+**Your final message IS the deliverable.** It is steered back to the orchestrator as the subagent result — put your findings there using the template below. If the orchestrator gave you a target file path in the task, also write the same content there with the `write` tool and report the exact path back in your summary.
 
 **Content template:**
 
