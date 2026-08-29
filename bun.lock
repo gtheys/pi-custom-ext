@@ -91,6 +91,14 @@
         "typebox": "*",
       },
     },
+    "packages/pi-prompt-snippets": {
+      "name": "@gtheys/pi-prompt-snippets",
+      "version": "0.1.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
+      },
+    },
     "packages/pi-review": {
       "name": "@gtheys/pi-review",
       "version": "0.2.0",
@@ -308,6 +316,8 @@
     "@gtheys/pi-planning": ["@gtheys/pi-planning@workspace:packages/pi-planning"],
 
     "@gtheys/pi-pr-digest": ["@gtheys/pi-pr-digest@workspace:packages/pi-pr-digest"],
+
+    "@gtheys/pi-prompt-snippets": ["@gtheys/pi-prompt-snippets@workspace:packages/pi-prompt-snippets"],
 
     "@gtheys/pi-review": ["@gtheys/pi-review@workspace:packages/pi-review"],
 

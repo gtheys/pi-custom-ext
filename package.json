@@ -23,6 +23,7 @@
     "extensions": [
       "./packages/pi-bootstrap/index.ts",
       "./packages/pi-ask-user-question/index.ts",
+      "./packages/pi-prompt-snippets/index.ts",
       "./packages/pi-review/review/review.ts",
       "./packages/pi-review/sonarqube/sonarqube.ts",
       "./packages/pi-review/pr-quality/index.ts",
