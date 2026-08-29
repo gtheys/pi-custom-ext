@@ -28,7 +28,7 @@ export interface StartTestSubagentOptions {
 export async function startTestSubagent(
   ctx: {
     sessionManager: {
-      getSessionFile(): string | null
+      getSessionFile(): string | undefined
       getSessionId(): string
       getSessionDir(): string
     }

@@ -226,14 +226,7 @@ export default function (pi: ExtensionAPI) {
       getSessionDir(): string
     },
   ) {
-    return {
-      sessionManager: {
-        getSessionFile: () => sessionManager.getSessionFile() ?? null,
-        getSessionId: () => sessionManager.getSessionId(),
-        getSessionDir: () => sessionManager.getSessionDir(),
-      },
-      cwd: runDir,
-    }
+    return { sessionManager, cwd: runDir }
   }
 
   async function startRun(

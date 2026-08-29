@@ -8,7 +8,7 @@
  * - Poll for file creation and screen output
  * - Clean up surfaces and temp files after tests
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync } from 'node:child_process'
 import {
   cpSync,
   existsSync,
@@ -18,10 +18,10 @@ import {
   readFileSync,
   rmSync,
   unlinkSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   closeSurface,
   createSurface,
@@ -36,9 +36,9 @@ import {
   sendEscape,
   sendLongCommand,
   shellEscape,
-} from "../../pi-extension/subagents/cmux.ts";
+} from '../../pi-extension/subagents/cmux.ts'
 
-export type { MuxBackend };
+export type { MuxBackend }
 // Re-export mux primitives for tests
 export {
   closeSurface,
@@ -50,13 +50,13 @@ export {
   sendEscape,
   sendLongCommand,
   shellEscape,
-};
+}
 
 // ── Paths ──
 
-const HARNESS_DIR = dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = resolve(HARNESS_DIR, "../..");
-const TEST_AGENTS_SRC = join(HARNESS_DIR, "agents");
+const HARNESS_DIR = dirname(fileURLToPath(import.meta.url))
+const PROJECT_ROOT = resolve(HARNESS_DIR, '../..')
+const TEST_AGENTS_SRC = join(HARNESS_DIR, 'agents')
 
 /**
  * Absolute path to the extension source in the working tree.
@@ -69,15 +69,21 @@ const TEST_AGENTS_SRC = join(HARNESS_DIR, "agents");
  * edits are always the code under test, regardless of what pi-packages are
  * installed on the host.
  */
-const EXTENSION_SOURCE = join(PROJECT_ROOT, "pi-extension", "subagents", "index.ts");
+const EXTENSION_SOURCE = join(
+  PROJECT_ROOT,
+  'pi-extension',
+  'subagents',
+  'index.ts',
+)
 
 // ── Configuration ──
 
 /** Model used for integration tests. Override with PI_TEST_MODEL env var. */
-export const TEST_MODEL = process.env.PI_TEST_MODEL ?? "anthropic/claude-haiku-4-5";
+export const TEST_MODEL =
+  process.env.PI_TEST_MODEL ?? 'anthropic/claude-haiku-4-5'
 
 /** Per-test timeout in ms. Override with PI_TEST_TIMEOUT env var. */
-export const PI_TIMEOUT = Number(process.env.PI_TEST_TIMEOUT ?? "120000");
+export const PI_TIMEOUT = Number(process.env.PI_TEST_TIMEOUT ?? '120000')
 
 // ── Backend detection ──
 
@@ -86,79 +92,93 @@ export const PI_TIMEOUT = Number(process.env.PI_TEST_TIMEOUT ?? "120000");
  * Temporarily sets PI_SUBAGENT_MUX to probe each backend.
  */
 export function getAvailableBackends(): MuxBackend[] {
-  const backends: MuxBackend[] = [];
-  const orig = process.env.PI_SUBAGENT_MUX;
+  const backends: MuxBackend[] = []
+  const orig = process.env.PI_SUBAGENT_MUX
 
-  for (const backend of ["cmux", "tmux", "zellij"] as MuxBackend[]) {
-    process.env.PI_SUBAGENT_MUX = backend;
+  for (const backend of ['cmux', 'tmux', 'zellij'] as MuxBackend[]) {
+    process.env.PI_SUBAGENT_MUX = backend
     try {
-      if (getMuxBackend() === backend) backends.push(backend);
+      if (getMuxBackend() === backend) backends.push(backend)
     } catch {}
   }
 
-  if (orig === undefined) delete process.env.PI_SUBAGENT_MUX;
-  else process.env.PI_SUBAGENT_MUX = orig;
+  if (orig === undefined) delete process.env.PI_SUBAGENT_MUX
+  else process.env.PI_SUBAGENT_MUX = orig
 
-  return backends;
+  return backends
 }
 
 export function setBackend(backend: MuxBackend): string | undefined {
-  const prev = process.env.PI_SUBAGENT_MUX;
-  process.env.PI_SUBAGENT_MUX = backend;
-  return prev;
+  const prev = process.env.PI_SUBAGENT_MUX
+  process.env.PI_SUBAGENT_MUX = backend
+  return prev
 }
 
 export function restoreBackend(prev: string | undefined): void {
-  if (prev === undefined) delete process.env.PI_SUBAGENT_MUX;
-  else process.env.PI_SUBAGENT_MUX = prev;
+  if (prev === undefined) delete process.env.PI_SUBAGENT_MUX
+  else process.env.PI_SUBAGENT_MUX = prev
 }
 
 export function focusSurface(backend: MuxBackend, surface: string): void {
-  if (backend === "cmux") {
-    const pane = getSurfacePane(backend, surface);
-    if (pane) execFileSync("cmux", ["focus-pane", "--pane", pane], { encoding: "utf8" });
-    execFileSync("cmux", ["focus-panel", "--panel", surface], { encoding: "utf8" });
-    return;
+  if (backend === 'cmux') {
+    const pane = getSurfacePane(backend, surface)
+    if (pane)
+      execFileSync('cmux', ['focus-pane', '--pane', pane], { encoding: 'utf8' })
+    execFileSync('cmux', ['focus-panel', '--panel', surface], {
+      encoding: 'utf8',
+    })
+    return
   }
 
-  if (backend === "tmux") {
-    execFileSync("tmux", ["select-pane", "-t", surface], { encoding: "utf8" });
-    return;
+  if (backend === 'tmux') {
+    execFileSync('tmux', ['select-pane', '-t', surface], { encoding: 'utf8' })
+    return
   }
 
-  throw new Error(`Focus helpers are not implemented for ${backend}`);
+  throw new Error(`Focus helpers are not implemented for ${backend}`)
 }
 
 export function getFocusedSurface(backend: MuxBackend): string | null {
-  if (backend === "cmux") {
-    const info = execFileSync("cmux", ["identify", "--json"], { encoding: "utf8" });
-    return parseCmuxFocusedSnapshotFromJson(info)?.surfaceRef ?? null;
+  if (backend === 'cmux') {
+    const info = execFileSync('cmux', ['identify', '--json'], {
+      encoding: 'utf8',
+    })
+    return parseCmuxFocusedSnapshotFromJson(info)?.surfaceRef ?? null
   }
 
-  if (backend === "tmux") {
+  if (backend === 'tmux') {
     try {
-      const panes = execFileSync("tmux", ["list-panes", "-F", "#{pane_id} #{pane_active}"], {
-        encoding: "utf8",
-      });
-      const activeLine = panes.split("\n").find((line) => line.endsWith(" 1"));
-      return activeLine?.split(" ")[0] ?? null;
+      const panes = execFileSync(
+        'tmux',
+        ['list-panes', '-F', '#{pane_id} #{pane_active}'],
+        {
+          encoding: 'utf8',
+        },
+      )
+      const activeLine = panes.split('\n').find((line) => line.endsWith(' 1'))
+      return activeLine?.split(' ')[0] ?? null
     } catch {
-      return null;
+      return null
     }
   }
 
-  throw new Error(`Focus helpers are not implemented for ${backend}`);
+  throw new Error(`Focus helpers are not implemented for ${backend}`)
 }
 
-export function getSurfacePane(backend: MuxBackend, surface: string): string | null {
-  if (backend === "cmux") {
-    const info = execFileSync("cmux", ["identify", "--surface", surface], { encoding: "utf8" });
-    return parseCmuxPaneRefForSurfaceFromJson(info, surface);
+export function getSurfacePane(
+  backend: MuxBackend,
+  surface: string,
+): string | null {
+  if (backend === 'cmux') {
+    const info = execFileSync('cmux', ['identify', '--surface', surface], {
+      encoding: 'utf8',
+    })
+    return parseCmuxPaneRefForSurfaceFromJson(info, surface)
   }
 
-  if (backend === "tmux") return surface;
+  if (backend === 'tmux') return surface
 
-  throw new Error(`Pane lookup is not implemented for ${backend}`);
+  throw new Error(`Pane lookup is not implemented for ${backend}`)
 }
 
 export async function waitForFocusedSurface(
@@ -166,29 +186,29 @@ export async function waitForFocusedSurface(
   surface: string,
   timeout: number = PI_TIMEOUT,
 ): Promise<void> {
-  const start = Date.now();
+  const start = Date.now()
   while (Date.now() - start < timeout) {
-    if (getFocusedSurface(backend) === surface) return;
-    await sleep(200);
+    if (getFocusedSurface(backend) === surface) return
+    await sleep(200)
   }
 
   throw new Error(
     `Timeout (${timeout}ms) waiting for focused ${backend} surface ${surface}; ` +
-      `current focus is ${getFocusedSurface(backend) ?? "unknown"}`,
-  );
+      `current focus is ${getFocusedSurface(backend) ?? 'unknown'}`,
+  )
 }
 
 // ── Test environment ──
 
 export interface TestEnv {
   /** Temp directory serving as the test project root */
-  dir: string;
+  dir: string
   /** Active mux backend for this test run */
-  backend: MuxBackend;
+  backend: MuxBackend
   /** Surfaces created during the test (cleaned up automatically) */
-  surfaces: string[];
+  surfaces: string[]
   /** Temp files to clean up */
-  tempFiles: string[];
+  tempFiles: string[]
 }
 
 /**
@@ -196,20 +216,20 @@ export interface TestEnv {
  * The temp dir has `.pi/agents/` containing copies of all test agents.
  */
 export function createTestEnv(backend: MuxBackend): TestEnv {
-  const dir = mkdtempSync(join(tmpdir(), "pi-integ-"));
-  const agentsDir = join(dir, ".pi", "agents");
-  mkdirSync(agentsDir, { recursive: true });
+  const dir = mkdtempSync(join(tmpdir(), 'pi-integ-'))
+  const agentsDir = join(dir, '.pi', 'agents')
+  mkdirSync(agentsDir, { recursive: true })
 
   // Copy test agent definitions into the project-local agents dir
   if (existsSync(TEST_AGENTS_SRC)) {
     for (const file of readdirSync(TEST_AGENTS_SRC)) {
-      if (file.endsWith(".md")) {
-        cpSync(join(TEST_AGENTS_SRC, file), join(agentsDir, file));
+      if (file.endsWith('.md')) {
+        cpSync(join(TEST_AGENTS_SRC, file), join(agentsDir, file))
       }
     }
   }
 
-  return { dir, backend, surfaces: [], tempFiles: [] };
+  return { dir, backend, surfaces: [], tempFiles: [] }
 }
 
 /**
@@ -218,16 +238,16 @@ export function createTestEnv(backend: MuxBackend): TestEnv {
 export function cleanupTestEnv(env: TestEnv): void {
   for (const surface of env.surfaces) {
     try {
-      closeSurface(surface);
+      closeSurface(surface)
     } catch {}
   }
   for (const file of env.tempFiles) {
     try {
-      unlinkSync(file);
+      unlinkSync(file)
     } catch {}
   }
   try {
-    rmSync(env.dir, { recursive: true, force: true });
+    rmSync(env.dir, { recursive: true, force: true })
   } catch {}
 }
 
@@ -235,27 +255,27 @@ export function cleanupTestEnv(env: TestEnv): void {
  * Create a surface and register it for automatic cleanup.
  */
 export function createTrackedSurface(env: TestEnv, name: string): string {
-  const surface = createSurface(name);
-  env.surfaces.push(surface);
-  return surface;
+  const surface = createSurface(name)
+  env.surfaces.push(surface)
+  return surface
 }
 
 export function createTrackedSurfaceSplit(
   env: TestEnv,
   name: string,
-  direction: "left" | "right" | "up" | "down",
+  direction: 'left' | 'right' | 'up' | 'down',
   fromSurface?: string,
 ): string {
-  const surface = createSurfaceSplit(name, direction, fromSurface);
-  env.surfaces.push(surface);
-  return surface;
+  const surface = createSurfaceSplit(name, direction, fromSurface)
+  env.surfaces.push(surface)
+  return surface
 }
 
 /**
  * Remove a surface from tracking (after manual close).
  */
 export function untrackSurface(env: TestEnv, surface: string): void {
-  env.surfaces = env.surfaces.filter((s) => s !== surface);
+  env.surfaces = env.surfaces.filter((s) => s !== surface)
 }
 
 // ── Pi session management ──
@@ -273,8 +293,8 @@ export function startPi(
   task: string,
   opts?: { model?: string; extraArgs?: string },
 ): void {
-  const model = opts?.model ?? TEST_MODEL;
-  const extra = opts?.extraArgs ?? "";
+  const model = opts?.model ?? TEST_MODEL
+  const extra = opts?.extraArgs ?? ''
 
   // Force pi to load the working-tree extension (not an installed pi-package
   // snapshot). `-ne` disables extension auto-discovery, `-e <path>` loads the
@@ -290,11 +310,11 @@ export function startPi(
     shellEscape(task),
   ]
     .filter(Boolean)
-    .join(" ");
+    .join(' ')
 
   sendLongCommand(surface, `${cmd}; echo '__TEST_DONE_'$?'__'`, {
     scriptPath: join(testDir, `test-launch-${Date.now()}.sh`),
-  });
+  })
 }
 
 // ── Polling helpers ──
@@ -309,22 +329,22 @@ export async function waitForScreen(
   timeout: number = PI_TIMEOUT,
   lines: number = 200,
 ): Promise<string> {
-  const start = Date.now();
+  const start = Date.now()
   while (Date.now() - start < timeout) {
     try {
-      const screen = await readScreenAsync(surface, lines);
-      if (pattern.test(screen)) return screen;
+      const screen = await readScreenAsync(surface, lines)
+      if (pattern.test(screen)) return screen
     } catch {}
-    await sleep(2000);
+    await sleep(2000)
   }
 
-  let finalScreen = "";
+  let finalScreen = ''
   try {
-    finalScreen = readScreen(surface, lines);
+    finalScreen = readScreen(surface, lines)
   } catch {}
   throw new Error(
     `Timeout (${timeout}ms) waiting for pattern ${pattern}.\nLast screen:\n${finalScreen.slice(-1000)}`,
-  );
+  )
 }
 
 /**
@@ -336,18 +356,18 @@ export async function waitForFile(
   timeout: number = PI_TIMEOUT,
   contentPattern?: RegExp,
 ): Promise<string> {
-  const start = Date.now();
+  const start = Date.now()
   while (Date.now() - start < timeout) {
     if (existsSync(path)) {
-      const content = readFileSync(path, "utf8");
-      if (!contentPattern || contentPattern.test(content)) return content;
+      const content = readFileSync(path, 'utf8')
+      if (!contentPattern || contentPattern.test(content)) return content
     }
-    await sleep(2000);
+    await sleep(2000)
   }
   throw new Error(
     `Timeout (${timeout}ms) waiting for file: ${path}` +
-      (contentPattern ? ` matching ${contentPattern}` : ""),
-  );
+      (contentPattern ? ` matching ${contentPattern}` : ''),
+  )
 }
 
 /**
@@ -358,24 +378,24 @@ export async function waitForPiExit(
   surface: string,
   timeout: number = PI_TIMEOUT,
 ): Promise<number> {
-  const screen = await waitForScreen(surface, /__TEST_DONE_(\d+)__/, timeout);
-  const match = screen.match(/__TEST_DONE_(\d+)__/);
-  return match ? parseInt(match[1], 10) : -1;
+  const screen = await waitForScreen(surface, /__TEST_DONE_(\d+)__/, timeout)
+  const match = screen.match(/__TEST_DONE_(\d+)__/)
+  return match ? parseInt(match[1], 10) : -1
 }
 
 // ── Utilities ──
 
 export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 export function uniqueId(): string {
-  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
 }
 
 /**
  * Register a temp file for cleanup.
  */
 export function trackTempFile(env: TestEnv, path: string): void {
-  env.tempFiles.push(path);
+  env.tempFiles.push(path)
 }
