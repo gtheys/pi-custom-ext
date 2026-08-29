@@ -6,6 +6,7 @@
  */
 
 import * as path from 'node:path'
+import type { ExtensionContext } from '@earendil-works/pi-coding-agent'
 import {
   isMuxAvailable,
   launchSubagent,
@@ -26,14 +27,7 @@ export interface StartTestSubagentOptions {
 }
 
 export async function startTestSubagent(
-  ctx: {
-    sessionManager: {
-      getSessionFile(): string | undefined
-      getSessionId(): string
-      getSessionDir(): string
-    }
-    cwd: string
-  },
+  ctx: ExtensionContext,
   opts: StartTestSubagentOptions,
 ): Promise<{ id: string; name: string; sessionFile: string }> {
   if (!isMuxAvailable()) {

@@ -63,9 +63,9 @@
     "shiki": "^4.4.3"
   },
   "devDependencies": {
-    "@earendil-works/pi-agent-core": "^0.84.2",
-    "@earendil-works/pi-coding-agent": "^0.84.2",
-    "@earendil-works/pi-tui": "^0.84.2",
+    "@earendil-works/pi-agent-core": "^0.84.4",
+    "@earendil-works/pi-coding-agent": "^0.84.4",
+    "@earendil-works/pi-tui": "^0.84.4",
     "@biomejs/biome": "2.4.13",
     "@types/diff": "latest",
     "lefthook": "2.1.6",

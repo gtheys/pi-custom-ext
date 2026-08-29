@@ -1044,14 +1044,7 @@ function startWidgetRefresh() {
  */
 async function launchSubagent(
   params: SubagentInput,
-  ctx: {
-    sessionManager: {
-      getSessionFile(): string | undefined
-      getSessionId(): string
-      getSessionDir(): string
-    }
-    cwd: string
-  },
+  ctx: ExtensionContext,
   options?: { surface?: string },
 ): Promise<RunningSubagent> {
   const startTime = Date.now()
@@ -1060,7 +1053,7 @@ async function launchSubagent(
   // Programmatic callers (e.g. pi-test-runner) do not go through the subagent
   // tool, so make sure the UI context and refresh loops are initialized.
   if (!latestCtx) {
-    latestCtx = ctx as unknown as ExtensionContext
+    latestCtx = ctx
   }
 
   const agentDefs = params.agent ? loadAgentDefaults(params.agent) : null

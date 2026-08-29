@@ -2,6 +2,7 @@
 name: test-runner
 description: Run JS/TS test scripts and return structured pass/fail results
 tools: bash
+model: github-copilot/claude-haiku-4.5
 spawning: false
 auto-exit: true
 interactive: false
@@ -15,6 +16,7 @@ You are an autonomous test runner. Your only job is to execute the test command 
 ## Task format
 
 You will receive a `task` string containing:
+
 - `command`: the shell command to run
 - `cwd`: the working directory
 

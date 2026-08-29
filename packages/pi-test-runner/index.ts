@@ -218,28 +218,13 @@ export default function (pi: ExtensionAPI) {
     )
   }
 
-  function buildRunContext(
-    runDir: string,
-    sessionManager: {
-      getSessionFile(): string | undefined
-      getSessionId(): string
-      getSessionDir(): string
-    },
-  ) {
-    return { sessionManager, cwd: runDir }
-  }
-
   async function startRun(
     scriptKey: string,
     command: string,
     runDir: string,
     model: string | undefined,
     signal: AbortSignal | undefined,
-    sessionManager: {
-      getSessionFile(): string | undefined
-      getSessionId(): string
-      getSessionDir(): string
-    },
+    ctx: ExtensionContext,
   ): Promise<TestRun | undefined> {
     ensureAgentFile()
 
@@ -257,18 +242,15 @@ export default function (pi: ExtensionAPI) {
       status: 'running',
     }
 
-    const started = await startTestSubagent(
-      buildRunContext(runDir, sessionManager),
-      {
-        name,
-        cwd: runDir,
-        command,
-        model,
-        signal,
-        onResult: (result) => handleResult(run, result),
-        onError: (err) => handleError(run, err),
-      },
-    )
+    const started = await startTestSubagent(ctx, {
+      name,
+      cwd: runDir,
+      command,
+      model,
+      signal,
+      onResult: (result) => handleResult(run, result),
+      onError: (err) => handleError(run, err),
+    })
 
     run.sessionFile = started.sessionFile
     activeRuns.push(run)
@@ -324,7 +306,7 @@ export default function (pi: ExtensionAPI) {
         runDir,
         config.defaultModel,
         ctx.signal,
-        ctx.sessionManager,
+        ctx,
       )
       if (!run) return undefined
 
@@ -421,7 +403,7 @@ export default function (pi: ExtensionAPI) {
           runDir,
           params.model ?? config.defaultModel,
           signal,
-          ctx.sessionManager,
+          ctx,
         )
         if (!run) {
           return {
