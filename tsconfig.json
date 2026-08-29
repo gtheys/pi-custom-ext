@@ -8,8 +8,13 @@
     "types": ["bun-types"],
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {
+      "@mariozechner/pi-coding-agent": ["./node_modules/@earendil-works/pi-coding-agent"],
+      "@mariozechner/pi-tui": ["./node_modules/@earendil-works/pi-tui"],
+      "pi-interactive-subagents": ["./packages/pi-test-runner/types/pi-interactive-subagents.d.ts"]
+    }
   },
   "include": ["packages/**/*.ts"],
-  "exclude": ["packages/pi-sem/node_modules/**"]
+  "exclude": ["packages/pi-sem/node_modules/**", "node_modules/**"]
 }

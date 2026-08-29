@@ -3,15 +3,16 @@
  *
  * Provides a `run_tests` tool and `/run-tests` command that:
  *   - Discover test scripts from the nearest package.json
- *   - Spawn a fully-detached pi subagent with its own session file
- *   - Use pi-intercom contact_supervisor as the sole result channel
+ *   - Spawn an isolated subagent via pi-interactive-subagents' programmatic API
+ *   - Deliver structured pass/fail results back into the session as steer messages
  *   - Allow switching into the subagent session to watch the live transcript
  *
  * Commands:
- *   /run-tests [script]   — run tests (no LLM turn, truly non-blocking)
- *   /test-runner switch   — jump into the most recent test session
- *   /test-runner back     — return to the session you came from
- *   /test-runner model    — configure the subagent model
+ *   /run-tests [script]      — run tests (fire-and-forget, results wake the session)
+ *   /test-runner setup       — install the test-runner agent definition
+ *   /test-runner switch      — jump into the most recent test session
+ *   /test-runner back        — return to the session you came from
+ *   /test-runner model [id]  — configure the subagent model
  */
 
 import { randomUUID } from 'node:crypto'
@@ -26,8 +27,9 @@ import { getAgentDir } from '@earendil-works/pi-coding-agent'
 import { Container, Text } from '@earendil-works/pi-tui'
 import { type Static, Type } from '@sinclair/typebox'
 import { Value } from '@sinclair/typebox/value'
+import type { SubagentResult } from 'pi-interactive-subagents'
 import { buildRunCommand, discoverTestScripts } from './discover.ts'
-import { generateSessionFile, spawnTestSubagent } from './runner.ts'
+import { startTestSubagent } from './subagent.ts'
 
 // AIDEV-NOTE: TypeBox schema is the source of truth for config shape.
 // config.schema.json is generated/refreshed at startup when missing.
@@ -47,8 +49,8 @@ const TestRunnerConfigSchema = Type.Object({
 
 type TestRunnerConfig = Static<typeof TestRunnerConfigSchema>
 
-// AIDEV-NOTE: TestRun is in-memory only (process lifetime). We don’t persist
-// the run list — the session files themselves are the persistent record.
+// AIDEV-NOTE: TestRun is in-memory only (process lifetime). Session files are
+// the persistent record and can be resumed with /resume or pi --session.
 interface TestRun {
   runId: string
   sessionFile: string
@@ -56,10 +58,10 @@ interface TestRun {
   command: string
   cwd: string
   started: number
+  status: 'running' | 'done' | 'error'
+  summary?: SubagentResult
 }
 
-// AIDEV-NOTE: Config is persisted to ~/.pi/agent/test-runner/config.json so it
-// survives new sessions. pi.appendEntry() is NOT used — that is session-scoped only.
 function getConfigPath(): string {
   return path.join(getAgentDir(), 'test-runner', 'config.json')
 }
@@ -83,15 +85,76 @@ function saveConfig(config: TestRunnerConfig): void {
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
 }
 
+function getBundledAgentPath(): string {
+  return path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    'agents',
+    'test-runner.md',
+  )
+}
+
+function getAgentTargetPath(): string {
+  return path.join(getAgentDir(), 'agents', 'test-runner.md')
+}
+
+// AIDEV-NOTE: The interactive-subagents extension discovers agent definitions
+// from ~/.pi/agent/agents/ and the current project. We copy our bundled agent
+// there once, on demand, so launchSubagent({ agent: 'test-runner' }) resolves it.
+function ensureAgentFile(): { installed: boolean; path: string } {
+  const bundledPath = getBundledAgentPath()
+  const targetPath = getAgentTargetPath()
+  if (!fs.existsSync(targetPath) && fs.existsSync(bundledPath)) {
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true })
+    fs.copyFileSync(bundledPath, targetPath)
+    return { installed: true, path: targetPath }
+  }
+  return { installed: false, path: targetPath }
+}
+
+function formatElapsed(started: number): string {
+  const seconds = Math.round((Date.now() - started) / 1000)
+  if (seconds < 60) {
+    return `${seconds}s`
+  }
+  return `${Math.round(seconds / 60)}m`
+}
+
+function formatResult(result: SubagentResult): {
+  text: string
+  parsed: unknown
+} {
+  let parsed: unknown
+  if (result.summary) {
+    const match = result.summary.match(/```json\n([\s\S]*?)\n```/)
+    if (match) {
+      try {
+        parsed = JSON.parse(match[1])
+      } catch {
+        parsed = undefined
+      }
+    }
+  }
+
+  let text: string
+  if (result.errorMessage) {
+    text = `Test run failed (provider/agent error): ${result.errorMessage}`
+  } else if (result.exitCode !== 0) {
+    text = `Tests failed (exit ${result.exitCode}).\n\n${result.summary}`
+  } else {
+    text = `Tests completed.\n\n${result.summary}`
+  }
+
+  return { text, parsed }
+}
+
 export default function (pi: ExtensionAPI) {
   let config: TestRunnerConfig = loadConfig()
-  // AIDEV-NOTE: activeRuns is in-memory. Session files are the persistent record.
   const activeRuns: TestRun[] = []
 
   pi.on('session_start', async (event) => {
     config = loadConfig()
     if (event.reason !== 'startup') return
-    // Scaffold config.schema.json next to this file when missing.
+
     const schemaPath = path.join(
       path.dirname(fileURLToPath(import.meta.url)),
       'config.schema.json',
@@ -103,89 +166,134 @@ export default function (pi: ExtensionAPI) {
         'utf-8',
       )
     }
+
+    ensureAgentFile()
   })
 
-  /**
-   * Resolve the pi-intercom target the spawned child should send
-   * contact_supervisor messages back to.
-   *
-   * AIDEV-NOTE: The intercom broker does NOT key sessions by the pi session UUID.
-   * On connect it generates its own random UUID and registers each session under
-   * that, plus the session's *presence name*. Broker.findSessions() resolves a
-   * target by broker-id first, then by presence name (case-insensitive).
-   *
-   * The broker-id is not reachable from here, but the presence name is stable and
-   * is pushed to the broker at registration (session_start) and re-synced on every
-   * turn_start — both happen before any child is spawned. So we target the presence
-   * name, which mirrors pi-intercom's resolveIntercomPresenceName():
-   *   - named session  → its display name (pi.getSessionName())
-   *   - unnamed session → `subagent-chat-<first 8 chars of pi session id>`
-   *
-   * Targeting the pi session UUID (ctx.sessionManager.getSessionId()) does NOT work
-   * — the broker doesn't know it, and the send fails with "Session not found".
-   * We deliberately do NOT call setSessionName() here: a name set mid-turn is not
-   * synced until the next turn_start, so a freshly-set random name would be
-   * unresolvable by the child. Reading the existing identity is race-free.
-   */
-  function resolveSupervisorTarget(
-    pi: ExtensionAPI,
-    ctx: ExtensionContext,
-  ): string {
-    const displayName = pi.getSessionName()?.trim()
-    if (displayName) return displayName
-    const piSessionId = ctx.sessionManager.getSessionId()
-    let normalized: string
-    if (piSessionId.startsWith('session-')) {
-      normalized = piSessionId.slice('session-'.length)
+  function handleResult(run: TestRun, result: SubagentResult): void {
+    if (result.errorMessage || result.exitCode !== 0) {
+      run.status = 'error'
     } else {
-      normalized = piSessionId
+      run.status = 'done'
     }
-    return `subagent-chat-${normalized.slice(0, 8)}`
+    run.summary = result
+
+    const { text, parsed } = formatResult(result)
+
+    pi.sendMessage(
+      {
+        customType: 'test_runner_result',
+        content: text,
+        display: true,
+        details: {
+          runId: run.runId,
+          script: run.script,
+          command: run.command,
+          cwd: run.cwd,
+          ...result,
+          parsed,
+        },
+      },
+      { triggerTurn: true, deliverAs: 'steer' },
+    )
   }
 
-  /** Shared spawn logic used by the tool and both commands. */
-  function startRun(
-    script: string,
+  function handleError(run: TestRun, err: unknown): void {
+    run.status = 'error'
+    const message = err instanceof Error ? err.message : String(err)
+    pi.sendMessage(
+      {
+        customType: 'test_runner_result',
+        content: `Test run error: ${message}`,
+        display: true,
+        details: {
+          runId: run.runId,
+          script: run.script,
+          command: run.command,
+          cwd: run.cwd,
+          error: message,
+        },
+      },
+      { triggerTurn: true, deliverAs: 'steer' },
+    )
+  }
+
+  function buildRunContext(
+    runDir: string,
+    sessionManager: {
+      getSessionFile(): string | undefined
+      getSessionId(): string
+      getSessionDir(): string
+    },
+  ) {
+    return {
+      sessionManager: {
+        getSessionFile: () => sessionManager.getSessionFile() ?? null,
+        getSessionId: () => sessionManager.getSessionId(),
+        getSessionDir: () => sessionManager.getSessionDir(),
+      },
+      cwd: runDir,
+    }
+  }
+
+  async function startRun(
+    scriptKey: string,
     command: string,
     runDir: string,
-    supervisorTarget: string | undefined,
     model: string | undefined,
-  ): TestRun {
+    signal: AbortSignal | undefined,
+    sessionManager: {
+      getSessionFile(): string | undefined
+      getSessionId(): string
+      getSessionDir(): string
+    },
+  ): Promise<TestRun | undefined> {
+    ensureAgentFile()
+
     const runId = randomUUID().slice(0, 8)
-    const sessionFile = generateSessionFile(getAgentDir(), runId)
+    const cwdBase = path.basename(runDir)
+    const name = `test: ${cwdBase} › ${scriptKey}`
+
     const run: TestRun = {
       runId,
-      sessionFile,
-      script,
+      sessionFile: '',
+      script: scriptKey,
       command,
       cwd: runDir,
       started: Date.now(),
+      status: 'running',
     }
+
+    const started = await startTestSubagent(
+      buildRunContext(runDir, sessionManager),
+      {
+        name,
+        cwd: runDir,
+        command,
+        model,
+        signal,
+        onResult: (result) => handleResult(run, result),
+        onError: (err) => handleError(run, err),
+      },
+    )
+
+    run.sessionFile = started.sessionFile
     activeRuns.push(run)
-    spawnTestSubagent({
-      command,
-      cwd: runDir,
-      runId,
-      sessionFile,
-      supervisorTarget,
-      model,
-    })
     return run
   }
 
-  // AIDEV-NOTE: Shared discovery + picker logic used by /test-runner (default) and /run-tests.
   async function resolveAndRun(
     scriptKey: string,
     cwd: string,
-    ctx: Parameters<Parameters<typeof pi.registerCommand>[1]['handler']>[1],
-  ): Promise<void> {
+    ctx: ExtensionContext,
+  ): Promise<TestRun | undefined> {
     const { scripts, packageDir } = discoverTestScripts(cwd)
     if (scripts.length === 0) {
       ctx.ui.notify(
         `No test scripts found in package.json (searched from ${cwd})`,
         'warning',
       )
-      return
+      return undefined
     }
 
     const runDir = packageDir ?? cwd
@@ -198,38 +306,46 @@ export default function (pi: ExtensionAPI) {
           `Script "${scriptKey}" not found. Available: ${scripts.map((s) => s.key).join(', ')}`,
           'warning',
         )
-        return
+        return undefined
       }
     } else if (scripts.length === 1) {
       selected = scripts[0]
     } else if (ctx.hasUI) {
       const choices = scripts.map((s) => `${s.key}: ${s.command}`)
       const choice = await ctx.ui.select('Which test script to run?', choices)
-      if (!choice) return
+      if (!choice) return undefined
       selected =
         scripts[scripts.findIndex((s) => `${s.key}: ${s.command}` === choice)]
     } else {
       selected = scripts[0]
     }
 
-    if (!selected) return
+    if (!selected) return undefined
 
     const command = buildRunCommand(selected.key, runDir)
-    const supervisorTarget = resolveSupervisorTarget(pi, ctx)
 
-    const run = startRun(
-      selected.key,
-      command,
-      runDir,
-      supervisorTarget,
-      config.defaultModel,
-    )
-    ctx.ui.notify(
-      `Tests started: ${command}\n/test-runner switch to watch  •  /test-runner back to return`,
-      'info',
-    )
-    // Keep the session file path accessible in the notification for reference
-    ctx.ui.setStatus('test-runner', `⏳ ${selected.key} — ${run.runId}`)
+    try {
+      const run = await startRun(
+        selected.key,
+        command,
+        runDir,
+        config.defaultModel,
+        ctx.signal,
+        ctx.sessionManager,
+      )
+      if (!run) return undefined
+
+      ctx.ui.notify(
+        `Tests started: ${command}\n/test-runner switch to watch  •  /test-runner back to return`,
+        'info',
+      )
+      ctx.ui.setStatus('test-runner', `⏳ ${selected.key} — ${run.runId}`)
+      return run
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      ctx.ui.notify(`Failed to start tests: ${message}`, 'error')
+      return undefined
+    }
   }
 
   pi.registerTool({
@@ -237,8 +353,8 @@ export default function (pi: ExtensionAPI) {
     label: 'Run Tests',
     description: [
       'Discover and run JS/TS test scripts from the nearest package.json.',
-      'Spawns an isolated subagent (bash-only) to run the tests and report structured pass/fail results.',
-      'Uses pi-intercom contact_supervisor for live progress updates when pi-intercom is installed.',
+      'Spawns an isolated subagent via pi-interactive-subagents and reports',
+      'structured pass/fail results as a steer message when done.',
     ].join(' '),
     promptSnippet:
       'Run JS/TS tests from package.json and return structured failures',
@@ -263,7 +379,7 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
 
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const workDir = params.cwd ?? ctx.cwd
       const { scripts, packageDir } = discoverTestScripts(workDir)
 
@@ -281,8 +397,7 @@ export default function (pi: ExtensionAPI) {
 
       const runDir = packageDir ?? workDir
 
-      // Resolve which script to run
-      let selected: ReturnType<typeof scripts.find>
+      let selected: (typeof scripts)[0] | undefined
       if (params.script) {
         selected = scripts.find((s) => s.key === params.script)
       }
@@ -300,49 +415,67 @@ export default function (pi: ExtensionAPI) {
           scripts[scripts.findIndex((s) => `${s.key}: ${s.command}` === choice)]
       }
 
-      selected ??= scripts[0]
+      if (!selected) {
+        selected = scripts[0]
+      }
 
       const command = buildRunCommand(selected.key, runDir)
 
-      const supervisorTarget = resolveSupervisorTarget(pi, ctx)
-
-      const run = startRun(
-        selected.key,
-        command,
-        runDir,
-        supervisorTarget,
-        params.model ?? config.defaultModel,
-      )
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: [
-              `Tests started: \`${command}\``,
-              `Session: ${run.sessionFile}`,
-              `Use /test-runner switch to watch the live transcript, /test-runner back to return.`,
-            ].join('\n'),
-          },
-        ],
-        details: {
-          running: true,
-          script: selected.key,
+      try {
+        const run = await startRun(
+          selected.key,
           command,
-          cwd: runDir,
-          sessionFile: run.sessionFile,
-          runId: run.runId,
-        },
+          runDir,
+          params.model ?? config.defaultModel,
+          signal,
+          ctx.sessionManager,
+        )
+        if (!run) {
+          return {
+            content: [{ type: 'text', text: 'Failed to start test run.' }],
+            details: { started: false },
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: [
+                `Tests started: \`${command}\``,
+                `Session: ${run.sessionFile}`,
+                `Use /test-runner switch to watch the live transcript, /test-runner back to return.`,
+              ].join('\n'),
+            },
+          ],
+          details: {
+            running: true,
+            script: selected.key,
+            command,
+            cwd: runDir,
+            sessionFile: run.sessionFile,
+            runId: run.runId,
+          },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Failed to start tests: ${message}`,
+            },
+          ],
+          details: { error: message },
+        }
       }
     },
 
     renderCall(args, theme) {
       const script = args.script ?? 'auto-detect'
-      let cwdSuffix: string
+      let cwdSuffix = ''
       if (args.cwd) {
         cwdSuffix = theme.fg('muted', ` in ${args.cwd}`)
-      } else {
-        cwdSuffix = ''
       }
       return new Text(
         theme.fg('toolTitle', theme.bold('run_tests ')) +
@@ -362,19 +495,22 @@ export default function (pi: ExtensionAPI) {
         cancelled?: boolean
         sessionFile?: string
         runId?: string
+        error?: string
       }
 
       const details = result.details as Details | undefined
       const t = result.content[0]
-      let text: string
+      let text = '(no output)'
       if (t?.type === 'text') {
         text = t.text
-      } else {
-        text = '(no output)'
       }
 
       if (!details || details.found === false || details.cancelled) {
         return new Text(theme.fg('muted', text), 0, 0)
+      }
+
+      if (details.error) {
+        return new Text(theme.fg('error', text), 0, 0)
       }
 
       if (details.running) {
@@ -393,7 +529,7 @@ export default function (pi: ExtensionAPI) {
             new Text(
               theme.fg(
                 'dim',
-                `   /test-runner switch to watch  •  /test-runner back to return`,
+                '   /test-runner switch to watch  •  /test-runner back to return',
               ),
               0,
               0,
@@ -407,11 +543,6 @@ export default function (pi: ExtensionAPI) {
     },
   })
 
-  // AIDEV-NOTE: /run-tests runs tests WITHOUT going through the LLM at all.
-  // Command handlers have no agent turn — fire-and-forget here truly means
-  // the session stays idle while tests run and after results arrive.
-  // Results are injected into the transcript via pi.sendMessage(display:true)
-  // without triggerTurn, so the user decides whether to ask the LLM to act.
   pi.registerCommand('run-tests', {
     description: 'Alias for /test-runner — run test scripts from package.json',
     handler: async (args, ctx) => {
@@ -419,46 +550,53 @@ export default function (pi: ExtensionAPI) {
     },
   })
 
-  // AIDEV-NOTE: /test-runner handles config, session switching, and run listing.
-  // switch/back use ctx.switchSession() which is only available in command handlers.
   pi.registerCommand('test-runner', {
-    description: 'Manage test-runner: switch | back | model | reset',
+    description:
+      'Manage test-runner: setup | switch | back | model | reset | status',
     handler: async (args, ctx) => {
       const parts = args.trim().split(/\s+/).filter(Boolean)
       const sub = parts[0]
 
-      // ── switch ──────────────────────────────────────────────────────────────
+      if (sub === 'setup') {
+        const { installed, path: agentPath } = ensureAgentFile()
+        if (installed) {
+          ctx.ui.notify(`Installed test-runner agent at ${agentPath}`, 'info')
+        } else {
+          ctx.ui.notify(
+            `test-runner agent already installed at ${agentPath}`,
+            'info',
+          )
+        }
+        return
+      }
+
       if (sub === 'switch') {
-        if (activeRuns.length === 0) {
+        const running = activeRuns.filter((r) => r.status === 'running')
+        const candidates = running.length > 0 ? running : activeRuns
+        if (candidates.length === 0) {
           ctx.ui.notify('No test runs started in this session.', 'warning')
           return
         }
 
         let run: TestRun
-        if (activeRuns.length === 1) {
-          run = activeRuns[0]
+        if (candidates.length === 1) {
+          run = candidates[0]
         } else {
-          const age = (r: TestRun) => {
-            const secs = Math.round((Date.now() - r.started) / 1000)
-            if (secs < 60) {
-              return `${secs}s ago`
-            }
-            return `${Math.round(secs / 60)}m ago`
-          }
-          const choices = activeRuns.map(
-            (r) => `${r.script} — ${r.command} (${age(r)})`,
+          const choices = candidates.map(
+            (r) => `${r.script} — ${r.command} (${formatElapsed(r.started)})`,
           )
           const choice = await ctx.ui.select('Switch to test session:', choices)
           if (!choice) return
           run =
-            activeRuns[
-              activeRuns.findIndex(
-                (r) => `${r.script} — ${r.command} (${age(r)})` === choice,
+            candidates[
+              candidates.findIndex(
+                (r) =>
+                  `${r.script} — ${r.command} (${formatElapsed(r.started)})` ===
+                  choice,
               )
             ]
         }
 
-        // Store current session so /test-runner back can return here.
         const currentFile = ctx.sessionManager.getSessionFile()
         if (currentFile) {
           config.previousSession = currentFile
@@ -470,7 +608,6 @@ export default function (pi: ExtensionAPI) {
         return
       }
 
-      // ── back ────────────────────────────────────────────────────────────────
       if (sub === 'back') {
         if (!config.previousSession) {
           ctx.ui.notify(
@@ -483,7 +620,6 @@ export default function (pi: ExtensionAPI) {
         return
       }
 
-      // ── model ───────────────────────────────────────────────────────────────
       if (sub === 'model') {
         const modelId = parts[1]
         if (!modelId) {
@@ -502,7 +638,6 @@ export default function (pi: ExtensionAPI) {
         return
       }
 
-      // ── reset ───────────────────────────────────────────────────────────────
       if (sub === 'reset') {
         config = {}
         saveConfig(config)
@@ -510,7 +645,6 @@ export default function (pi: ExtensionAPI) {
         return
       }
 
-      // ── status ─────────────────────────────────────────────────────────────
       if (sub === 'status') {
         const lines = ['test-runner status:']
         lines.push(`  model: ${config.defaultModel ?? '(pi default)'}`)
@@ -518,24 +652,19 @@ export default function (pi: ExtensionAPI) {
           lines.push('')
           lines.push('Active runs this session:')
           for (const r of activeRuns) {
-            const secs = Math.round((Date.now() - r.started) / 1000)
-            let age: string
-            if (secs < 60) {
-              age = `${secs}s`
-            } else {
-              age = `${Math.round(secs / 60)}m`
-            }
-            lines.push(`  ${r.script} (${age}) — ${r.runId}`)
+            lines.push(
+              `  ${r.script} (${formatElapsed(r.started)}) — ${r.runId} [${r.status}]`,
+            )
           }
         }
         lines.push('')
-        lines.push('/test-runner switch | back | model | reset | status')
+        lines.push(
+          '/test-runner setup | switch | back | model | reset | status',
+        )
         ctx.ui.notify(lines.join('\n'), 'info')
         return
       }
-      // ── default: run tests ────────────────────────────────────────────────
-      // /test-runner [script-key] starts a test run.
-      // Unrecognised subcommands are treated as script keys (e.g. /test-runner test:unit).
+
       await resolveAndRun(args.trim(), ctx.cwd, ctx)
     },
   })

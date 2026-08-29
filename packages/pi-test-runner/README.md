@@ -2,7 +2,13 @@
 
 > ⚠️ **Experimental / Work in Progress** — behaviour may change.
 
-Pi extension that discovers and runs JS/TS test scripts from the nearest `package.json`, spawning an isolated subagent to execute them. Results are injected back into the session automatically when done — the tool is **non-blocking**.
+Pi extension that discovers and runs JS/TS test scripts from the nearest `package.json`, spawning an isolated subagent via [pi-interactive-subagents](https://github.com/HazAT/pi-interactive-subagents). Results are injected back into the session automatically when done — the tool is **non-blocking**.
+
+## Requirements
+
+- `pi-interactive-subagents` must be installed and loaded.
+- A supported terminal multiplexer (cmux, tmux, zellij, wezterm, or herdr) must be available.
+- Tests run in a persistent session so the subagent has a session file to switch back to.
 
 ## How it works
 
@@ -10,40 +16,42 @@ Pi extension that discovers and runs JS/TS test scripts from the nearest `packag
 2. Extracts scripts matching test patterns (`test`, `test:*`, `jest`, `vitest`, `playwright`, `mocha`, `cypress`, `e2e`, `spec`).
 3. If multiple scripts exist and no `script` param is given, shows a picker.
 4. Detects the package manager from lockfiles (`yarn.lock`, `pnpm-lock.yaml`, fallback to `npm`).
-5. Spawns an isolated pi subprocess as the subagent.
-6. Returns **immediately** — session is unlocked while tests run.
-7. Subagent sends `contact_supervisor` progress updates via pi-intercom.
-8. When done, `pi.sendMessage({ triggerTurn: true })` re-engages the LLM with structured pass/fail results.
+5. Calls `launchSubagent` from `pi-interactive-subagents` to spawn a bash-only subagent running the `test-runner` agent definition.
+6. Returns **immediately** — the session is unlocked while tests run.
+7. Watches the subagent in the background; when it exits, sends a `test_runner_result` steer message with structured pass/fail data.
+
+## Setup
+
+The first time you use the extension, install the bundled `test-runner` agent definition into the global agents directory:
+
+```
+/test-runner setup
+```
+
+This copies `agents/test-runner.md` to `~/.pi/agent/agents/test-runner.md` so `pi-interactive-subagents` can resolve the `test-runner` agent.
 
 ## Tool parameters
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `script` | `string?` | Script key from `package.json` (e.g. `test:unit`). Auto-detected if omitted. |
-| `cwd` | `string?` | Working directory to search. Defaults to current project directory. |
+| `cwd` | `string?` | Working directory to search. Defaults to the current project directory. |
 | `model` | `string?` | Model ID for the subagent. Overrides the configured default. |
 
 ## Commands
 
 ```
-/run-tests                — run tests, truly non-blocking
+/run-tests                — run tests (non-blocking)
 /run-tests test:unit      — run a specific script
 
-/test-runner              — show current config and active runs
-/test-runner model <id>   — set default subagent model
-/test-runner model        — show current default model
-/test-runner reset        — clear all config
-/test-runner back         — return to the previous session
+/test-runner setup       — install the test-runner agent definition
+/test-runner switch      — jump into the most recent running test session
+/test-runner back        — return to the previous session
+/test-runner model <id>  — set the default subagent model
+/test-runner model       — show the current default model
+/test-runner reset       — clear all config
+/test-runner status      — show config and active runs
 ```
-
-## `/run-tests` vs `run_tests` tool
-
-| | `/run-tests` command | `run_tests` tool |
-|--|---------------------|------------------|
-| Triggered by | You (directly) | LLM |
-| LLM turn while running | None | One turn for "started", one for results |
-| Session stays idle? | ✓ Always | ✗ LLM responds twice |
-| When to use | Normal test runs | LLM-driven workflows |
 
 ## Configuration
 

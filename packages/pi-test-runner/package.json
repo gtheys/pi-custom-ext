@@ -18,10 +18,14 @@
   "files": [
     "index.ts",
     "discover.ts",
-    "runner.ts",
+    "subagent.ts",
+    "agents/test-runner.md",
     "config.schema.json",
     "README.md"
   ],
+  "dependencies": {
+    "pi-interactive-subagents": "file:../../../pi-interactive-subagents"
+  },
   "pi": {
     "extensions": [
       "./index.ts"
