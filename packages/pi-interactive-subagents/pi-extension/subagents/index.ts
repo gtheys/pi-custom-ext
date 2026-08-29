@@ -572,6 +572,7 @@ const runningSubagents = new Map<string, RunningSubagent>()
 
 /** Latest ExtensionContext from session_start, used for widget updates. */
 let latestCtx: ExtensionContext | null = null
+let latestPi: ExtensionAPI | null = null
 
 /** Interval timer for widget re-renders. */
 let widgetInterval: ReturnType<typeof setInterval> | null = null
@@ -1056,6 +1057,12 @@ async function launchSubagent(
   const startTime = Date.now()
   const id = Math.random().toString(16).slice(2, 10)
 
+  // Programmatic callers (e.g. pi-test-runner) do not go through the subagent
+  // tool, so make sure the UI context and refresh loops are initialized.
+  if (!latestCtx) {
+    latestCtx = ctx as unknown as ExtensionContext
+  }
+
   const agentDefs = params.agent ? loadAgentDefaults(params.agent) : null
   const effectiveModel = params.model ?? agentDefs?.model
   const effectiveTools = params.tools ?? agentDefs?.tools
@@ -1209,6 +1216,8 @@ async function launchSubagent(
     }
 
     runningSubagents.set(id, running)
+    startWidgetRefresh()
+    if (latestPi) startStatusRefresh(latestPi)
     return running
   }
 
@@ -1369,6 +1378,8 @@ async function launchSubagent(
   }
 
   runningSubagents.set(id, running)
+  startWidgetRefresh()
+  if (latestPi) startStatusRefresh(latestPi)
   return running
 }
 
@@ -1534,6 +1545,7 @@ async function watchSubagent(
 
 export default function subagentsExtension(pi: ExtensionAPI) {
   // Capture the UI context for widget updates
+  latestPi = pi
   pi.on('session_start', (_event, ctx) => {
     latestCtx = ctx
   })
