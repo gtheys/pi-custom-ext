@@ -37,5 +37,8 @@
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"
+  },
+  "dependencies": {
+    "@gtheys/pi-interactive-subagents": "workspace:*"
   }
 }

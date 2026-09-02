@@ -45,6 +45,12 @@ import {
   Text,
 } from '@earendil-works/pi-tui'
 import {
+  isMuxAvailable,
+  launchSubagent,
+  type SubagentResult,
+  watchSubagent,
+} from '@gtheys/pi-interactive-subagents'
+import {
   buildSemReviewGuidance,
   getSemToolAvailability,
 } from './sem-guidance.mjs'
@@ -1119,6 +1125,74 @@ export default function reviewExtension(pi: ExtensionAPI) {
     }
   }
 
+  // AIDEV-NOTE: subagent review path (pi-interactive-subagents). Preferred
+  // whenever a supported mux is available: spawns the bundled 'reviewer' agent
+  // (Opus, read+bash, auto-exit) in a mux pane — non-blocking, main session
+  // untouched, findings steer back as a review_result message. The legacy
+  // in-session/branch flow below only runs without a mux or on spawn failure.
+  function deliverSubagentReviewResult(hint: string, result: SubagentResult) {
+    const failed = result.exitCode !== 0 || !!result.errorMessage
+    const content = failed
+      ? `Code review failed (${hint}): ${result.errorMessage ?? `exit code ${result.exitCode}`}`
+      : `Code review finished (${hint}). Reviewer findings:\n\n${result.summary}\n\nSession: ${result.sessionFile}`
+
+    pi.sendMessage(
+      {
+        customType: 'review_result',
+        content,
+        display: true,
+        details: { hint, failed, sessionFile: result.sessionFile },
+      },
+      { triggerTurn: true, deliverAs: 'steer' },
+    )
+  }
+
+  async function startSubagentReview(
+    ctx: ExtensionContext,
+    fullPrompt: string,
+    hint: string,
+  ): Promise<boolean> {
+    try {
+      const running = await launchSubagent(
+        {
+          agent: 'reviewer',
+          name: `Review: ${hint}`,
+          task: fullPrompt,
+          cwd: ctx.cwd,
+        },
+        ctx,
+      )
+
+      ctx.ui.notify(
+        `Review "${hint}" running in a subagent pane — findings arrive here when done.`,
+        'info',
+      )
+
+      watchSubagent(running, new AbortController().signal)
+        .then((result) => deliverSubagentReviewResult(hint, result))
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err)
+          deliverSubagentReviewResult(hint, {
+            name: `Review: ${hint}`,
+            task: fullPrompt,
+            summary: `Watcher error: ${message}`,
+            sessionFile: undefined,
+            exitCode: 1,
+            elapsed: 0,
+            errorMessage: message,
+          })
+        })
+      return true
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      ctx.ui.notify(
+        `Subagent review unavailable (${message}). Falling back to in-session review.`,
+        'warning',
+      )
+      return false
+    }
+  }
+
   /**
    * Execute the review
    */
@@ -1127,7 +1201,34 @@ export default function reviewExtension(pi: ExtensionAPI) {
     target: ReviewTarget,
     useFreshSession: boolean,
   ): Promise<void> {
-    // Check if we're already in a review
+    const prompt = await buildReviewPrompt(pi, target)
+    const semReviewInstructions = await buildSemReviewInstructions(target)
+    const hint = getUserFacingHint(target)
+    const projectGuidelines = await loadProjectReviewGuidelines(ctx.cwd)
+
+    // Combine the review rubric with the specific prompt
+    let fullPrompt = `${REVIEW_RUBRIC}\n\n---\n\nPlease perform a code review with the following focus:\n\n${prompt}`
+
+    if (semReviewInstructions) {
+      fullPrompt += `\n\n${semReviewInstructions}`
+    }
+
+    if (projectGuidelines) {
+      fullPrompt += `\n\nThis project has additional instructions for code reviews:\n\n${projectGuidelines}`
+    }
+
+    if (target.type === 'pullRequest' && target.tuicrInstructions) {
+      fullPrompt += target.tuicrInstructions
+    }
+
+    // Subagent path — preferred whenever a mux is available. Runs before the
+    // branch machinery so a mux present means no session-tree branch is created.
+    if (isMuxAvailable()) {
+      const spawned = await startSubagentReview(ctx, fullPrompt, hint)
+      if (spawned) return
+    }
+
+    // Legacy in-session path (no mux, or subagent spawn failed)
     if (reviewOriginId) {
       ctx.ui.notify(
         'Already in a review. Use /end-review to finish first.',
@@ -1136,7 +1237,6 @@ export default function reviewExtension(pi: ExtensionAPI) {
       return
     }
 
-    // Handle fresh session mode
     if (useFreshSession) {
       // Store current position (where we'll return to)
       const originId = ctx.sessionManager.getLeafId() ?? undefined
@@ -1202,26 +1302,6 @@ export default function reviewExtension(pi: ExtensionAPI) {
         active: true,
         originId: lockedOriginId,
       })
-    }
-
-    const prompt = await buildReviewPrompt(pi, target)
-    const semReviewInstructions = await buildSemReviewInstructions(target)
-    const hint = getUserFacingHint(target)
-    const projectGuidelines = await loadProjectReviewGuidelines(ctx.cwd)
-
-    // Combine the review rubric with the specific prompt
-    let fullPrompt = `${REVIEW_RUBRIC}\n\n---\n\nPlease perform a code review with the following focus:\n\n${prompt}`
-
-    if (semReviewInstructions) {
-      fullPrompt += `\n\n${semReviewInstructions}`
-    }
-
-    if (projectGuidelines) {
-      fullPrompt += `\n\nThis project has additional instructions for code reviews:\n\n${projectGuidelines}`
-    }
-
-    if (target.type === 'pullRequest' && target.tuicrInstructions) {
-      fullPrompt += target.tuicrInstructions
     }
 
     let modeHint: string
@@ -1389,15 +1469,6 @@ export default function reviewExtension(pi: ExtensionAPI) {
         return
       }
 
-      // Check if we're already in a review
-      if (reviewOriginId) {
-        ctx.ui.notify(
-          'Already in a review. Use /end-review to finish first.',
-          'warning',
-        )
-        return
-      }
-
       // Check if we're in a git repository
       const { code } = await pi.exec('git', ['rev-parse', '--git-dir'])
       if (code !== 0) {
@@ -1447,8 +1518,9 @@ export default function reviewExtension(pi: ExtensionAPI) {
 
         let useFreshSession = false
 
-        if (messageCount > 0) {
-          // Existing session - ask user which mode they want
+        // With a mux available, /review always spawns a subagent — no mode
+        // question needed. The selector below is the legacy no-mux flow only.
+        if (messageCount > 0 && !isMuxAvailable()) {
           const choice = await ctx.ui.select('Start review in:', [
             'Empty branch',
             'Current session',

@@ -23,6 +23,14 @@ Agent-driven code review. Supports multiple targets:
 
 Modes: uncommitted changes, base branch diff, specific commit, pull request, folder diff, or custom instructions.
 
+### Subagent review (default)
+
+When [pi-interactive-subagents](https://github.com/gtheys/pi-my-rifle-ext/tree/main/packages/pi-interactive-subagents) is installed and pi runs inside a supported terminal multiplexer (cmux, tmux, zellij, WezTerm, Herdr), `/review` spawns the bundled `reviewer` agent (Opus, read+bash, auto-exit) in a background pane. The review runs non-blocking — the main session stays usable — and the findings are steered back into the main session automatically when the reviewer finishes. Override the reviewer by placing your own `reviewer.md` in `.pi/agents/` (project) or `~/.pi/agent/agents/` (global).
+
+### Legacy in-session review (no mux)
+
+Without a supported multiplexer (or if spawning fails), `/review` falls back to running the review in the session itself: pick "Empty branch" to review on a labeled session-tree branch (return with `/end-review`), or "Current session".
+
 When reviewing a pull request, if `tuicr` and `herdr` are on PATH and the session is running inside Herdr (`HERDR_ENV=1`), `/review` also opens a `tuicr pr <n>` TUI in a Herdr pane on the right, and asks the agent to add its findings into that session via `tuicr review add` (see the `tuicr` skill).
 
 ---
