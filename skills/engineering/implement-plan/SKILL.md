@@ -111,14 +111,13 @@ Before touching any code, confirm the workspace is on the correct feature branch
 
 ### 3a — Derive the expected branch name
 
-The branch script **ships with this skill** at `scripts/jira-branch.sh` relative to this SKILL.md. Resolve it to the skill directory (NOT the target repo — it will not exist there) and run it from inside the target repo, since it operates on the current cwd's git repo:
+Call the `jira_create_branch` tool (from the `pi-planning` package) with `dry_run: true`, `cwd` set to the target repo root:
 
-```bash
-# run from the target repo's root; <SKILL_DIR> = directory containing this SKILL.md
-bash <SKILL_DIR>/scripts/jira-branch.sh <JIRA_ID> --dry-run
+```
+jira_create_branch({ jira_id: "<JIRA_ID>", cwd: "<repo root>", dry_run: true })
 ```
 
-Parse the `Branch:` line from the output — format is `<prefix>/<JIRA_ID>-<slug>`.
+The returned `details.branch` is the expected branch name — format `<prefix>/<JIRA_ID>-<slug>`.
 
 ### 3b — Check the current branch
 
@@ -132,9 +131,9 @@ git rev-parse --abbrev-ref HEAD
 |-----------|--------|
 | Current branch == expected branch | ✓ Proceed |
 | Expected branch exists locally (`git show-ref --verify refs/heads/<branch>`) | `git checkout <branch>` |
-| Expected branch does not exist | `bash <SKILL_DIR>/scripts/jira-branch.sh <JIRA_ID>` — creates branch and sets git-town parent |
+| Expected branch does not exist | `jira_create_branch({ jira_id: "<JIRA_ID>", cwd: "<repo root>" })` — creates branch and sets git-town parent |
 
-If the script fails (e.g. `acli` not available or repo is a personal project with no Jira), report the error and ask the user how to proceed before continuing.
+If the tool call fails (e.g. `acli` not available or repo is a personal project with no Jira), report the error and ask the user how to proceed before continuing.
 
 Do **not** skip this step even when resuming a partially complete spec — always confirm the branch.
 

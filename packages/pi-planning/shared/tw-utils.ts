@@ -1,7 +1,4 @@
-/**
- * Shared taskwarrior helpers.
- * Used by both plan-tools and implement-plan extensions.
- */
+/** Shared taskwarrior exec helpers for the pi-planning tools. */
 
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 
@@ -35,4 +32,21 @@ export async function twExport(
   } catch {
     return []
   }
+}
+
+/**
+ * Close a taskwarrior task: sets work_state:done then runs `task done`
+ * so it's also closed as status:completed. Shared by tw_advance_task and
+ * tw_phase_checkpoint — both need the same two-call sequence.
+ */
+export async function twMarkDone(
+  pi: ExtensionAPI,
+  uuid: string,
+): Promise<void> {
+  await pi.exec(
+    'task',
+    [uuid, 'modify', 'work_state:done', 'rc.confirmation:no'],
+    {},
+  )
+  await pi.exec('task', [uuid, 'done', 'rc.confirmation:no'], {})
 }

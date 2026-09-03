@@ -17,8 +17,21 @@
   },
   "files": [
     "plan-tools/index.ts",
+    "plan-tools/helpers.ts",
+    "plan-tools/get-ticket.ts",
+    "plan-tools/get-spec-task.ts",
+    "plan-tools/get-phases-impl.ts",
+    "plan-tools/resolve-spec-path.ts",
+    "plan-tools/create-spec-task.ts",
+    "plan-tools/create-phase.ts",
+    "plan-tools/create-impl-task.ts",
     "implement-plan/index.ts",
+    "implement-plan/execution-plan.ts",
+    "implement-plan/advance-task.ts",
+    "implement-plan/phase-checkpoint.ts",
+    "implement-plan/jira-branch-tool.ts",
     "shared/tw-utils.ts",
+    "shared/jira-branch.ts",
     "README.md"
   ],
   "pi": {
