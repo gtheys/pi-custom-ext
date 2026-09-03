@@ -1,11 +1,11 @@
 ---
 name: tdd-workflow
-description: Use this skill when writing new features, fixing bugs, or refactoring code. Enforces test-driven development with 80%+ coverage including unit, integration, and E2E tests.
+description: Use this skill whenever writing new features, fixing bugs, refactoring code, adding API endpoints, or creating new components. Enforces test-driven development through a strict red-before-green loop, tests written at agreed public seams (not implementation details), and 80%+ coverage across unit, integration, and E2E tests. Make sure to consult this skill before writing any implementation code, not just when the user explicitly asks for "tests" or "TDD" — if code is being written or changed, this skill applies.
 ---
 
 # Test-Driven Development Workflow
 
-This skill ensures all code development follows TDD principles with comprehensive test coverage.
+TDD is the red → green loop. This skill is the reference that makes that loop produce tests worth keeping: what a good test is, where tests go, the anti-patterns that quietly ruin a test suite, and the rules of the loop itself. Every section below applies on every cycle — consult them before and during the loop, not after the fact once a pile of code and tests already exists.
 
 ## When to Activate
 
@@ -15,234 +15,64 @@ This skill ensures all code development follows TDD principles with comprehensiv
 - Adding API endpoints
 - Creating new components
 
-## Core Principles
+## Before You Start
 
-### 1. Tests BEFORE Code
+If the project has a `CONTEXT.md`, read it so test names and the vocabulary you use for interfaces match the project's own domain language rather than generic placeholders. Respect any ADRs (architecture decision records) that cover the area you're about to touch — a test suite that fights a documented decision is a sign you're solving the wrong problem.
 
-ALWAYS write tests first, then implement code to make tests pass.
+## What a Good Test Is
 
-### 2. Coverage Requirements
+Tests verify behavior through public interfaces, not implementation details. The code behind an interface can be rewritten entirely and the test shouldn't need to change. A good test reads like a specification — `"user can checkout with valid cart"` tells you exactly what capability exists, and it survives refactors because it never cared about internal structure in the first place.
 
-- Minimum 80% coverage (unit + integration + E2E)
-- All edge cases covered
-- Error scenarios tested
-- Boundary conditions verified
+See `references/tests.md` for worked examples of good vs. bad tests, and `references/mocking.md` for mocking guidelines.
 
-### 3. Test Types
+## Seams: Where Tests Go
 
-#### Unit Tests
+A **seam** is the public boundary you test at — the interface where you can observe behavior without reaching inside. Tests live at seams, never against internals.
 
-- Individual functions and utilities
-- Component logic
-- Pure functions
-- Helpers and utilities
+Before writing any test, write down the seams under test and confirm them with the user. Don't write a test at a seam that hasn't been agreed. You can't test everything, so agreeing the seams up front is what makes testing effort land on critical paths and complex logic instead of spreading thin across every incidental edge case.
 
-#### Integration Tests
+Ask: **"What's the public interface here, and which seams should we test?"**
 
-- API endpoints
-- Database operations
-- Service interactions
-- External API calls
+If the shape of that interface is itself in question — how deep the module should be, where the seam belongs, what the interface ought to expose — and a codebase-design skill or reference is available in this environment, consult it for shared vocabulary (module, interface, depth, seam, adapter). Treat it as a reference to check, not a workflow to run.
 
-#### E2E Tests (Playwright)
+## Anti-Patterns
 
-- Critical user flows
-- Complete workflows
-- Browser automation
-- UI interactions
+Watch for these three failure modes — they're the ones that let a test suite pass while quietly stopping being useful:
 
-## TDD Workflow Steps
+- **Implementation-coupled**: mocks internal collaborators, tests private methods, or verifies through a side channel (e.g. querying the database directly instead of going through the interface). The tell: the test breaks when you refactor even though behavior hasn't changed.
+- **Tautological**: the assertion recomputes the expected value the same way the code does (`expect(add(a, b)).toBe(a + b)`, a snapshot derived by hand using the same logic, a constant asserted equal to itself). This kind of test passes by construction and can never disagree with the code. Expected values must come from an independent source of truth — a known-good literal, a worked example, the spec.
+- **Horizontal slicing**: writing all the tests for a feature first, then all the implementation. This feels efficient but the bulk-written tests end up verifying imagined behavior rather than real behavior, they go insensitive to changes because they were never driven by an actual implementation, and you lock in test structure before you understand the shape of the solution. Work in vertical slices instead — see "Rules of the Loop" below.
 
-### Step 1: Write User Journeys
+Full examples of each of these (and their fixes) are in `references/tests.md`.
 
-```
-As a [role], I want to [action], so that [benefit]
+## Rules of the Loop
 
-Example:
-As a user, I want to search for markets semantically,
-so that I can find relevant markets even without exact keywords.
-```
+- **Red before green.** Write the failing test first, then write only enough code to make it pass. Don't anticipate future tests or add speculative features the current test doesn't require.
+- **One slice at a time.** One seam, one test, one minimal implementation per cycle. Each cycle is a tracer bullet that responds to what the previous cycle taught you — this is what a vertical slice looks like in practice, as opposed to the horizontal-slicing anti-pattern above.
+- **Refactoring is not part of the loop.** It happens at the review stage, after the cycle is green — not folded into the red → green cycle itself. Keep the two activities separate so it's always clear whether you're changing behavior or just its internal shape.
 
-### Step 2: Generate Test Cases
+### The loop, concretely
 
-For each user journey, create comprehensive test cases:
+1. **Write one user journey.** `As a [role], I want to [action], so that [benefit]`.
+2. **Pick one seam and one test case for it.** Not the whole list — one.
+3. **Write that test. Run it. Confirm it fails** (and fails for the right reason — a typo or import error isn't a real red).
+4. **Write the minimal implementation to pass it.** Resist adding anything the test doesn't demand.
+5. **Run it again. Confirm it's green.**
+6. **Repeat from step 2** for the next test case in the journey, letting each new test grow the implementation incrementally.
+7. Once the journey's cycles are done, refactor as a separate pass — remove duplication, improve naming, tidy structure — with the tests green throughout.
+8. **Verify coverage** once the feature's cycles are complete (see Coverage below).
 
-```typescript
-describe('Semantic Search', () => {
-  it('returns relevant markets for query', async () => {
-    // Test implementation
-  })
+## Test Types
 
-  it('handles empty query gracefully', async () => {
-    // Test edge case
-  })
+A full feature typically needs coverage at three levels. Code patterns and examples for each are in `references/patterns.md`.
 
-  it('falls back to substring search when Redis unavailable', async () => {
-    // Test fallback behavior
-  })
+- **Unit** — individual functions, pure logic, component behavior, helpers.
+- **Integration** — API endpoints, database operations, service interactions, external API calls.
+- **E2E (Playwright)** — critical user flows, complete workflows, browser automation.
 
-  it('sorts results by similarity score', async () => {
-    // Test sorting logic
-  })
-})
-```
+## Mocking
 
-### Step 3: Run Tests (They Should Fail)
-
-```bash
-npm test
-# Tests should fail - we haven't implemented yet
-```
-
-### Step 4: Implement Code
-
-Write minimal code to make tests pass:
-
-```typescript
-// Implementation guided by tests
-export async function searchMarkets(query: string) {
-  // Implementation here
-}
-```
-
-### Step 5: Run Tests Again
-
-```bash
-npm test
-# Tests should now pass
-```
-
-### Step 6: Refactor
-
-Improve code quality while keeping tests green:
-
-- Remove duplication
-- Improve naming
-- Optimize performance
-- Enhance readability
-
-### Step 7: Verify Coverage
-
-```bash
-npm run test:coverage
-# Verify 80%+ coverage achieved
-```
-
-## Testing Patterns
-
-### Unit Test Pattern (Jest/Vitest)
-
-```typescript
-import { render, screen, fireEvent } from '@testing-library/react'
-import { Button } from './Button'
-
-describe('Button Component', () => {
-  it('renders with correct text', () => {
-    render(<Button>Click me</Button>)
-    expect(screen.getByText('Click me')).toBeInTheDocument()
-  })
-
-  it('calls onClick when clicked', () => {
-    const handleClick = jest.fn()
-    render(<Button onClick={handleClick}>Click</Button>)
-
-    fireEvent.click(screen.getByRole('button'))
-
-    expect(handleClick).toHaveBeenCalledTimes(1)
-  })
-
-  it('is disabled when disabled prop is true', () => {
-    render(<Button disabled>Click</Button>)
-    expect(screen.getByRole('button')).toBeDisabled()
-  })
-})
-```
-
-### API Integration Test Pattern
-
-```typescript
-import { NextRequest } from 'next/server'
-import { GET } from './route'
-
-describe('GET /api/markets', () => {
-  it('returns markets successfully', async () => {
-    const request = new NextRequest('http://localhost/api/markets')
-    const response = await GET(request)
-    const data = await response.json()
-
-    expect(response.status).toBe(200)
-    expect(data.success).toBe(true)
-    expect(Array.isArray(data.data)).toBe(true)
-  })
-
-  it('validates query parameters', async () => {
-    const request = new NextRequest('http://localhost/api/markets?limit=invalid')
-    const response = await GET(request)
-
-    expect(response.status).toBe(400)
-  })
-
-  it('handles database errors gracefully', async () => {
-    // Mock database failure
-    const request = new NextRequest('http://localhost/api/markets')
-    // Test error handling
-  })
-})
-```
-
-### E2E Test Pattern (Playwright)
-
-```typescript
-import { test, expect } from '@playwright/test'
-
-test('user can search and filter markets', async ({ page }) => {
-  // Navigate to markets page
-  await page.goto('/')
-  await page.click('a[href="/markets"]')
-
-  // Verify page loaded
-  await expect(page.locator('h1')).toContainText('Markets')
-
-  // Search for markets
-  await page.fill('input[placeholder="Search markets"]', 'election')
-
-  // Wait for debounce and results
-  await page.waitForTimeout(600)
-
-  // Verify search results displayed
-  const results = page.locator('[data-testid="market-card"]')
-  await expect(results).toHaveCount(5, { timeout: 5000 })
-
-  // Verify results contain search term
-  const firstResult = results.first()
-  await expect(firstResult).toContainText('election', { ignoreCase: true })
-
-  // Filter by status
-  await page.click('button:has-text("Active")')
-
-  // Verify filtered results
-  await expect(results).toHaveCount(3)
-})
-
-test('user can create a new market', async ({ page }) => {
-  // Login first
-  await page.goto('/creator-dashboard')
-
-  // Fill market creation form
-  await page.fill('input[name="name"]', 'Test Market')
-  await page.fill('textarea[name="description"]', 'Test description')
-  await page.fill('input[name="endDate"]', '2025-12-31')
-
-  // Submit form
-  await page.click('button[type="submit"]')
-
-  // Verify success message
-  await expect(page.locator('text=Market created successfully')).toBeVisible()
-
-  // Verify redirect to market page
-  await expect(page).toHaveURL(/\/markets\/test-market/)
-})
-```
+Mock only at system boundaries — external APIs, databases (prefer a real test DB when practical), time/randomness, sometimes the filesystem. Don't mock your own modules or internal collaborators; if a test needs to mock something you wrote to make it pass, that's usually a sign the test is at the wrong seam, not that the mock is missing. See `references/mocking.md` for the reasoning, dependency-injection patterns, and concrete mocks for common services (Supabase, Redis, OpenAI-style embedding calls).
 
 ## Test File Organization
 
@@ -253,182 +83,37 @@ test('user can create a new market', async ({ page }) => {
     ├── unit/                # pure unit tests (no network/db)
     ├── integration/         # routers/services touching db libs, supertest, etc
     ├── e2e/                 # black-box / end-to-end (HTTP-level)
-    ├── e2e-db/              # keep as-is (special DB validation suite + own config)
+    ├── e2e-db/              # special DB validation suite + own config
     ├── helpers/             # shared test helpers
     ├── fixtures/            # shared fixtures
     ├── setup/
-    │   └── jest-setup.js    
+    │   └── jest-setup.js
     └── mocks/
-        └── buffer-equal-constant-time.js
+        └── ...service mocks...
 ```
 
-## Mocking External Services
+## Coverage
 
-### Supabase Mock
-
-```typescript
-jest.mock('@/lib/supabase', () => ({
-  supabase: {
-    from: jest.fn(() => ({
-      select: jest.fn(() => ({
-        eq: jest.fn(() => Promise.resolve({
-          data: [{ id: 1, name: 'Test Market' }],
-          error: null
-        }))
-      }))
-    }))
-  }
-}))
-```
-
-### Redis Mock
-
-```typescript
-jest.mock('@/lib/redis', () => ({
-  searchMarketsByVector: jest.fn(() => Promise.resolve([
-    { slug: 'test-market', similarity_score: 0.95 }
-  ])),
-  checkRedisHealth: jest.fn(() => Promise.resolve({ connected: true }))
-}))
-```
-
-### OpenAI Mock
-
-```typescript
-jest.mock('@/lib/openai', () => ({
-  generateEmbedding: jest.fn(() => Promise.resolve(
-    new Array(1536).fill(0.1) // Mock 1536-dim embedding
-  ))
-}))
-```
-
-## Test Coverage Verification
-
-### Run Coverage Report
-
-```bash
-npm run test:coverage
-```
-
-### Coverage Thresholds
-
-```json
-{
-  "jest": {
-    "coverageThresholds": {
-      "global": {
-        "branches": 80,
-        "functions": 80,
-        "lines": 80,
-        "statements": 80
-      }
-    }
-  }
-}
-```
-
-## Common Testing Mistakes to Avoid
-
-### ❌ WRONG: Testing Implementation Details
-
-```typescript
-// Don't test internal state
-expect(component.state.count).toBe(5)
-```
-
-### ✅ CORRECT: Test User-Visible Behavior
-
-```typescript
-// Test what users see
-expect(screen.getByText('Count: 5')).toBeInTheDocument()
-```
-
-### ❌ WRONG: Brittle Selectors
-
-```typescript
-// Breaks easily
-await page.click('.css-class-xyz')
-```
-
-### ✅ CORRECT: Semantic Selectors
-
-```typescript
-// Resilient to changes
-await page.click('button:has-text("Submit")')
-await page.click('[data-testid="submit-button"]')
-```
-
-### ❌ WRONG: No Test Isolation
-
-```typescript
-// Tests depend on each other
-test('creates user', () => { /* ... */ })
-test('updates same user', () => { /* depends on previous test */ })
-```
-
-### ✅ CORRECT: Independent Tests
-
-```typescript
-// Each test sets up its own data
-test('creates user', () => {
-  const user = createTestUser()
-  // Test logic
-})
-
-test('updates user', () => {
-  const user = createTestUser()
-  // Update logic
-})
-```
-
-## Continuous Testing
-
-### Watch Mode During Development
-
-```bash
-npm test -- --watch
-# Tests run automatically on file changes
-```
-
-### Pre-Commit Hook
-
-```bash
-# Runs before every commit
-npm test && npm run lint
-```
-
-### CI/CD Integration
-
-```yaml
-# GitHub Actions
-- name: Run Tests
-  run: npm test -- --coverage
-- name: Upload Coverage
-  uses: codecov/codecov-action@v3
-```
+Minimum 80% coverage (unit + integration + E2E combined), with all edge cases, error scenarios, and boundary conditions covered. Treat this as a floor that falls out naturally from testing every seam you agreed to test — not a target to chase by adding tests that pad the number. A tautological test can hit 100% coverage on a line and still tell you nothing; a suite built one honest red→green cycle at a time won't have that problem. See `references/project-setup.md` for the coverage config, CI wiring, and pre-commit setup.
 
 ## Best Practices
 
-1. **Write Tests First** - Always TDD
-2. **One Assert Per Test** - Focus on single behavior
-3. **Descriptive Test Names** - Explain what's tested
-4. **Arrange-Act-Assert** - Clear test structure
-5. **Mock External Dependencies** - Isolate unit tests
-6. **Test Edge Cases** - Null, undefined, empty, large
-7. **Test Error Paths** - Not just happy paths
-8. **Keep Tests Fast** - Unit tests < 50ms each
-9. **Clean Up After Tests** - No side effects
-10. **Review Coverage Reports** - Identify gaps
+1. Red before green, always.
+2. One assertion focus per test — test a single behavior.
+3. Descriptive test names that explain *what*, not *how*.
+4. Arrange–Act–Assert structure.
+5. Mock only at system boundaries.
+6. Test edge cases: null, undefined, empty, large.
+7. Test error paths, not just the happy path.
+8. Keep unit tests fast (< 50ms each).
+9. Clean up after tests — no shared state, no side effects.
+10. Review coverage reports to find gaps, not to chase a percentage.
 
 ## Success Metrics
 
-- 80%+ code coverage achieved
-- All tests passing (green)
-- No skipped or disabled tests
-- Fast test execution (< 30s for unit tests)
-- E2E tests cover critical user flows
-- Tests catch bugs before production
-
----
-
-**Remember**: Tests are not optional. They are the safety net that enables confident refactoring, rapid development, and production reliability.
+- Every test maps to an agreed seam, and you could explain what capability it specifies without reading its body.
+- 80%+ coverage achieved as a byproduct of that, not as the goal itself.
+- All tests passing, none skipped or disabled.
+- Refactors don't break tests unless behavior actually changed.
+- Fast test execution (< 30s for unit tests).
+- E2E tests cover the critical user flows end to end.
