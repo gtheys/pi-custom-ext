@@ -1,76 +1,69 @@
 ---
 name: debug
-description: "Bootstrap a debugging session for issues encountered during manual testing or implementation. Investigates logs (minikube pods), database state (PostgreSQL nonprod), and git history without editing files. Use when something is broken, unexpected behavior occurs, or you need to trace an issue. Trigger on 'debug', 'something's broken', 'help me debug', 'what's wrong', 'investigate issue', or when invoked with 'start: Debug'."
+description: "Structured debugging session: redact secrets, build a tight red-capable feedback loop, reproduce and minimise, rank hypotheses, instrument, fix with a regression test, and clean up. Use when something is broken, unexpected, throwing, failing, or slow. Trigger on 'debug', 'diagnose', 'something's broken', 'help me debug', 'what's wrong', 'investigate issue', or invocation as /engineering:debug JIRA-ID SH. Accepts an optional Jira ID to bootstrap ticket context and branch, and an optional SH flag that additionally loads project-specific database and pod-log investigation commands — omit SH for a generic session with no infra assumptions."
 ---
 
 # Debug Session
 
-You are tasked with helping debug issues during manual testing or implementation. Your role is to **investigate only** — examine logs, database state, and git history without editing files. Think of this as a debugging bootstrap session.
+Investigate methodically until you have a true root cause, not a guess. Default to **investigate-only**: build evidence, form a root-cause hypothesis, and present a recommended fix without applying it. Only move into Phase 5 (apply the fix) if the user explicitly asks you to proceed with it.
+
+If the project has a `CONTEXT.md`, read it first for a mental model of the relevant modules, and check ADRs in the area you're touching.
+
+## Redact
+
+This skill has you show commands, outputs, and captured artifacts. **Redact every secret first**: write `<REDACTED>` in its place. Build loops against env vars so the credential stays in the environment rather than in what you show. Captured artifacts carry auth headers — quote only the lines that carry the signal.
+
+If the redacted output isn't enough to diagnose the bug, say so and ask the user.
 
 ## Arguments
 
-The skill accepts an optional Jira ID (e.g. `IMP-7070`, `DP-92`, `ENG-1234`) as `$ARGUMENTS`.
+`$ARGUMENTS` is optional: `<JIRA-ID> [SH]`
 
----
+- **`<JIRA-ID>`** (e.g. `IMP-7070`, `DP-92`, `ENG-1234`) — bootstraps ticket context and a working branch. See Step 0.
+- **`SH`** — loads `references/sh-environment.md`, which has this project's specific database connection, minikube pod-naming, and cluster-state commands. Only load it when this flag is present — it's project-specific infra detail, not something every debugging session needs. Without it, investigate generically (whatever logs/DB/repro tooling the user has on hand) and ask the user for access if you need something you don't have.
 
-## Initial Response
+## Step 0: Jira Bootstrap (when a JIRA-ID is given)
 
-### When invoked WITH a Jira ID:
-
-Immediately fetch ticket context from taskwarrior, then ask what broke:
-
-#### Step 1 — Fetch ticket
+**Fetch the ticket:**
 
 ```bash
 task jiraid:$JIRA_ID +jira export
 ```
 
-Parse JSON. Key fields:
+Parse JSON. Key fields: `jirasummary`, `jiradescription` (full description, AC, specs), `jirastatus`, `jiraurl`, `jiraissuetype`.
 
-| Field | Purpose |
-|-------|--------|
-| `jirasummary` | Jira title |
-| `jiradescription` | Full description, AC, specs |
-| `jirastatus` | Current status |
-| `jiraurl` | Link to ticket |
-| `jiraissuetype` | Story / Bug / Task |
-
-If no task found:
+If no task is found:
 
 ```
 No taskwarrior task found for "$JIRA_ID". Make sure bugwarrior has synced.
 Run `bugwarrior pull` to sync, or describe the issue manually.
 ```
 
-#### Step 2 — Create branch (if not already on one for this ticket)
-
-After fetching the ticket, check whether a branch for this Jira ID already
-exists locally. If not, create one using the shared helper:
+**Create or switch to the ticket's branch:**
 
 ```bash
 # Check for an existing branch first
 git branch --list "*$JIRA_ID*"
-
-# If none found, create it
-bash scripts/jira-branch.sh $JIRA_ID
 ```
 
-If the branch already exists, check it out:
+If none found, call the `jira_create_branch` tool (ships with the `pi-planning` package — shared with the implement-plan skill instead of a per-skill copy):
+
+```
+jira_create_branch({ jira_id: "$JIRA_ID", cwd: "<repo root>" })
+```
+
+If one exists, check it out:
 
 ```bash
 git checkout $(git branch --list "*$JIRA_ID*" | head -1 | tr -d ' *')
 ```
 
-> The script sets the git-town parent to `develop` and names the branch
-> `<prefix>/$JIRA_ID-<summary-slug>`. Use `--dry-run` to preview without
-> creating.
+> `jira_create_branch` sets the git-town parent to `develop` and names the branch `<prefix>/$JIRA_ID-<summary-slug>`. Pass `dry_run: true` to preview without creating. Requires the `pi-planning` package's tools to be loaded in this session.
 
----
-
-#### Step 3 — Present context and ask what broke
+**Present context and ask what broke:**
 
 ```
-I'll help debug issues with $JIRA_ID — $jirasummary.
+I'll help debug $JIRA_ID — $jirasummary.
 
 Ticket status: $jirastatus
 Jira: $jiraurl
@@ -82,94 +75,13 @@ What specific problem are you encountering?
 - What were you trying to test/implement?
 - What went wrong?
 - Any error messages or unexpected behavior?
-
-I'll investigate the logs, database, and git state to figure out what's happening.
 ```
 
----
+Wait for the user's description before proceeding to Phase 1. When invoked without a Jira ID, ask the equivalent generic questions (what were you working on, what broke, any error/stack trace, when did it last work) and wait for the answer.
 
-### When invoked WITHOUT a Jira ID:
+## Generic Tooling: Git History
 
-```
-I'll help debug your current issue.
-
-Please describe what's going wrong:
-- What are you working on? (Jira ID if you have one)
-- What specific problem occurred?
-- Any error messages or stack traces?
-- When did it last work correctly?
-
-I can investigate logs (minikube), database state (PostgreSQL nonprod), and recent git changes to help identify the root cause.
-```
-
-Wait for user's description before proceeding.
-
----
-
-## Available Investigation Tools
-
-### 1. PostgreSQL — Nonprod Database
-
-**Connection string:** `postgres://postgres:localpassword@localhost:5432/nonprod`
-
-```bash
-# Connect interactively
-psql postgres://postgres:localpassword@localhost:5432/nonprod
-
-# Run a one-off query
-psql postgres://postgres:localpassword@localhost:5432/nonprod -c "<SQL>"
-
-# List all tables
-psql postgres://postgres:localpassword@localhost:5432/nonprod -c "\dt"
-
-# Describe a specific table
-psql postgres://postgres:localpassword@localhost:5432/nonprod -c "\d <table_name>"
-```
-
-Use to inspect: record state, missing rows, constraint violations, migration state, data inconsistencies.
-
----
-
-### 2. Minikube Pod Logs
-
-Pods are named closely after the repository name. The current repo name can be determined via:
-
-```bash
-basename "$(git remote get-url origin 2>/dev/null | sed 's/\.git$//')" 2>/dev/null \
-  || basename "$(git rev-parse --show-toplevel 2>/dev/null)" \
-  || basename "$PWD"
-```
-
-**Discovery flow:**
-
-```bash
-# List all running pods
-kubectl get pods -A
-
-# Find pods matching repo name (fuzzy match)
-kubectl get pods -A | grep -i "<repo-name>"
-
-# Get logs from a specific pod (all namespaces)
-kubectl logs -n <namespace> <pod-name>
-
-# Tail live logs
-kubectl logs -n <namespace> <pod-name> --tail=100 -f
-
-# Get logs from previous crashed container
-kubectl logs -n <namespace> <pod-name> --previous
-
-# Get logs from a specific container in a multi-container pod
-kubectl logs -n <namespace> <pod-name> -c <container-name>
-
-# Describe pod for events/crash reason
-kubectl describe pod -n <namespace> <pod-name>
-```
-
-**If multiple pods match**, list them all and ask the user which to focus on, or check all relevant ones.
-
----
-
-### 3. Git History & Recent Changes
+Available in every session regardless of the `SH` flag — correlating with recent changes is often the fastest way to narrow a hypothesis space:
 
 ```bash
 # Recent commits on current branch
@@ -191,98 +103,144 @@ git diff HEAD~5 -- <file>
 git status && git branch
 ```
 
----
+## Phase 1: Build a Feedback Loop
 
-### 4. Local Service State
+**This is the skill.** Everything else is mechanical. If you have a **tight** pass/fail signal for the bug — one that goes red on *this* bug — you will find the cause; bisection, hypothesis-testing, and instrumentation all just consume it. If you don't have one, no amount of staring at code will save you.
 
-```bash
-# Check if expected services are running
-kubectl get services -A
+Spend disproportionate effort here. **Be aggressive. Be creative. Refuse to give up.**
 
-# Check deployments and their replica state
-kubectl get deployments -A
+### Ways to construct one, in roughly this order
 
-# Check recent events in the cluster
-kubectl get events -A --sort-by='.lastTimestamp' | tail -30
+1. **Failing test** at whatever seam reaches the bug: unit, integration, e2e.
+2. **Curl / HTTP script** against a running dev server.
+3. **CLI invocation** with a fixture input, diffing stdout against a known-good snapshot.
+4. **Headless browser script** (Playwright / Puppeteer) that drives the UI and asserts on DOM/console/network.
+5. **Replay a captured trace.** Save a real network request / payload / event log to disk; replay it through the code path in isolation.
+6. **Throwaway harness.** Spin up a minimal subset of the system (one service, mocked deps) that exercises the bug code path with a single function call.
+7. **Property / fuzz loop.** If the bug is "sometimes wrong output," run 1000 random inputs and look for the failure mode.
+8. **Bisection harness.** If the bug appeared between two known states (commit, dataset, version), automate "boot at state X, check, repeat" so you can `git bisect run` it.
+9. **Differential loop.** Run the same input through old-version vs new-version (or two configs) and diff outputs.
+10. **HITL bash script.** Last resort. If a human must click, drive *them* with `scripts/hitl-loop.template.sh` so the loop is still structured. Captured output feeds back to you.
 
-# Check if there are crashlooping pods
-kubectl get pods -A | grep -v Running | grep -v Completed
-```
+If the `SH` flag is set, `references/sh-environment.md` has ready-made psql/kubectl commands for this stack that can shortcut steps 1–6 — check it before building a loop from scratch.
 
----
+Build the right feedback loop, and the bug is 90% fixed.
 
-## Investigation Strategy
+### Tighten the loop
 
-### Step 1: Gather context from user
+Treat the loop as a product. Once you have *a* loop, **tighten** it:
 
-Understand:
-- What they were doing (feature area, endpoint, flow)
-- What broke (error message, wrong data, 500, silent failure)
-- When it last worked (after a deploy? after a migration? after a code change?)
+- Can I make it faster? (Cache setup, skip unrelated init, narrow the test scope.)
+- Can I make the signal sharper? (Assert on the specific symptom, not "didn't crash.")
+- Can I make it more deterministic? (Pin time, seed RNG, isolate filesystem, freeze network.)
 
-### Step 2: Map to components
+A 30-second flaky loop is barely better than no loop; a 2-second deterministic one is tight — a debugging superpower.
 
-Based on the description, identify which components are involved:
-- Which service/pod handles this flow?
-- Which database tables are involved?
-- Were there recent migrations or code changes?
+### Non-deterministic bugs
 
-### Step 3: Check logs first
+The goal is not a clean repro but a **higher reproduction rate**. Loop the trigger 100×, parallelise, add stress, narrow timing windows, inject sleeps. A 50%-flake bug is debuggable; 1% is not, so keep raising the rate until it's debuggable.
 
-```bash
-# Find the relevant pod
-kubectl get pods -A | grep -i "<repo-or-service-name>"
+### When you genuinely cannot build a loop
 
-# Check recent logs for errors
-kubectl logs -n <namespace> <pod-name> --tail=200 | grep -i "error\|exception\|traceback\|fatal\|warn"
+Stop and say so explicitly. List what you tried. Ask the user for: (a) access to whatever environment reproduces it, (b) a redacted captured artifact (HAR file, log dump, core dump, screen recording with timestamps), or (c) permission to add temporary production instrumentation. Do **not** proceed to hypothesise without a loop.
 
-# Full recent logs if needed
-kubectl logs -n <namespace> <pod-name> --tail=200
-```
+### Completion criterion: a tight loop that goes red
 
-### Step 4: Check database state
+Phase 1 is done when the loop is **tight** and **red-capable**: you can name **one command** (a script path, a test invocation, a curl) that you have **already run at least once** (show the invocation and its output, redacted), and that is:
 
-If the issue involves data:
-```bash
-# Check relevant table
-psql postgres://postgres:localpassword@localhost:5432/nonprod -c "SELECT * FROM <table> WHERE <condition> LIMIT 10;"
+- [ ] **Red-capable**: it drives the actual bug code path and asserts the **user's exact symptom**, so it can go red on this bug and green once fixed. Not "runs without erroring" — it must be able to *catch this specific bug*.
+- [ ] **Deterministic**: same verdict every run (flaky bugs: a pinned, high reproduction rate, per above).
+- [ ] **Fast**: seconds, not minutes.
+- [ ] **Agent-runnable**: you can run it unattended; a human in the loop only via `scripts/hitl-loop.template.sh`.
 
-# Check migration state (common pattern)
-psql postgres://postgres:localpassword@localhost:5432/nonprod -c "SELECT * FROM alembic_version;"
+If you catch yourself reading code to build a theory before this command exists, **stop: jumping straight to a hypothesis is the exact failure this skill prevents.** No red-capable command, no Phase 2.
 
-# Check for constraint violations or unexpected nulls
-psql postgres://postgres:localpassword@localhost:5432/nonprod -c "\d <table>"
-```
+## Phase 2: Reproduce + Minimise
 
-### Step 5: Correlate with recent changes
+Run the loop. Watch it go red as the bug appears.
 
-```bash
-# What changed recently
-git log --oneline -10
+Confirm:
 
-# Did a relevant file change?
-git log --oneline -10 -- <suspected-file>
-```
+- [ ] The loop produces the failure mode the **user** described, not a different failure that happens to be nearby. Wrong bug = wrong fix.
+- [ ] The failure is reproducible across multiple runs (or, for non-deterministic bugs, reproducible at a high enough rate to debug against).
+- [ ] You have captured the exact symptom (error message, wrong output, slow timing) so later phases can verify the fix actually addresses it.
 
-### Step 6: Synthesize findings
+### Minimise
 
-Present:
-1. **Root cause hypothesis** — what you believe is wrong and why
-2. **Evidence** — log lines, DB state, git commits that support it
-3. **Recommended fix** — what to do (but don't do it — surface it for the developer)
+Once it's red, shrink the repro to the **smallest scenario that still goes red**. Cut inputs, callers, config, data, and steps **one at a time**, re-running the loop after each cut, and keep only what's load-bearing for the failure.
 
----
+Why bother: a minimal repro shrinks the hypothesis space in Phase 3 (fewer moving parts left to suspect) and becomes the clean regression test in Phase 5.
 
-## Output Format
+Done when **every remaining element is load-bearing**: removing any one of them makes the loop go green.
 
-After investigation, present findings as:
+Do not proceed until you have reproduced **and** minimised.
+
+## Phase 3: Hypothesise
+
+Generate **3–5 ranked hypotheses** before testing any of them. Single-hypothesis generation anchors on the first plausible idea.
+
+Each hypothesis must be **falsifiable**: state the prediction it makes.
+
+> Format: "If \<X\> is the cause, then \<changing Y\> will make the bug disappear / \<changing Z\> will make it worse."
+
+If you cannot state the prediction, the hypothesis is a vibe — discard or sharpen it.
+
+**Show the ranked list to the user before testing.** They often have domain knowledge that re-ranks instantly ("we just deployed a change to #3"), or know hypotheses they've already ruled out. Cheap checkpoint, big time saver. Don't block on it; proceed with your ranking if the user is AFK.
+
+## Phase 4: Instrument
+
+Each probe must map to a specific prediction from Phase 3. **Change one variable at a time.**
+
+Tool preference:
+
+1. **Debugger / REPL inspection** if the env supports it. One breakpoint beats ten logs.
+2. **Targeted logs** at the boundaries that distinguish hypotheses. If `SH` is set, `references/sh-environment.md` has the pod/namespace discovery commands for pulling those logs.
+3. Never "log everything and grep."
+
+**Tag every debug log** with a unique prefix, e.g. `[DEBUG-a4f2]`. Cleanup at the end becomes a single grep. Untagged logs survive; tagged logs die.
+
+**Perf branch.** For performance regressions, logs are usually wrong. Instead: establish a baseline measurement (timing harness, `performance.now()`, profiler, query plan), then bisect. Measure first, fix second.
+
+If data state is in question, `references/sh-environment.md` (when `SH` is set) has the nonprod database queries for inspecting record state, migrations, and constraint violations.
+
+## Phase 5: Fix + Regression Test
+
+Only do this phase if the user has asked you to proceed with the fix itself — otherwise stop after Phase 4 and report findings (see Output Format).
+
+Write the regression test **before** the fix, but only if there is a **correct seam** for it.
+
+A correct seam is one where the test exercises the **real bug pattern** as it occurs at the call site. If the only available seam is too shallow (single-caller test when the bug needs multiple callers, unit test that can't replicate the chain that triggered the bug), a regression test there gives false confidence.
+
+**If no correct seam exists, that itself is the finding.** Note it. The codebase architecture is preventing the bug from being locked down. Flag this for the next phase.
+
+If a correct seam exists:
+
+1. Turn the minimised repro into a failing test at that seam.
+2. Watch it fail.
+3. Apply the fix.
+4. Watch it pass.
+5. Re-run the Phase 1 feedback loop against the original (un-minimised) scenario.
+
+## Phase 6: Cleanup
+
+Required before declaring done (only applies once Phase 5 has run):
+
+- [ ] Original repro no longer reproduces (re-run the Phase 1 loop)
+- [ ] Regression test passes (or absence of seam is documented)
+- [ ] All `[DEBUG-...]` instrumentation removed (`grep` the prefix)
+- [ ] Throwaway prototypes deleted (or moved to a clearly-marked debug location)
+- [ ] The hypothesis that turned out correct is stated in the commit / PR message, so the next debugger learns
+
+## Output Format (default: investigate-only)
+
+When stopping at Phase 4 without applying a fix, present:
 
 ```
 ## Debug Findings
 
 ### What I investigated:
-- Logs: [pod name, namespace, time range]
-- Database: [tables/queries checked]
+- Feedback loop: [the exact command/script, and what it asserts]
+- Logs / DB / infra: [pod name+namespace, tables/queries, or "none — generic session"]
 - Git: [commits/files reviewed]
 
 ### What I found:
@@ -290,21 +248,18 @@ After investigation, present findings as:
 - [Corroborating detail]
 
 ### Root cause hypothesis:
-[Concise explanation of what's wrong and why]
+[Concise explanation of what's wrong and why, referencing the ranked hypothesis from Phase 3 that held up]
 
 ### Recommended next steps:
 1. [Specific action to fix or verify]
 2. [Follow-up check]
 ```
 
----
-
 ## Important Guidelines
 
-1. **Investigate, don't fix** — surface findings, let the developer decide on the fix
-2. **Show evidence** — always quote the specific log line, query result, or git commit supporting your conclusion
-3. **Check all three layers** — logs, DB, git history often point to the same root cause from different angles
-4. **Be specific about pod names** — always show the exact pod/namespace used
-5. **Fuzzy match repo → pod name** — pod names rarely match exactly; always `kubectl get pods -A` first
-6. **Ask before assuming scope** — if the issue could span multiple services, ask which to focus on first
-7. **Note crashlooping pods** — always check for non-Running pods as part of initial triage
+1. **Investigate by default, fix only when asked** — surface findings and a hypothesis; only apply a fix and run Phase 5–6 if the user explicitly says to proceed.
+2. **Show evidence** — always quote the specific log line, query result, or git commit supporting a conclusion.
+3. **A tight feedback loop beats staring at code** — don't skip Phase 1 to jump to a hypothesis, even under time pressure.
+4. **Redact secrets** in everything you show, per the Redact section above.
+5. **Ask before assuming scope** — if the issue could span multiple services, ask which to focus on first.
+6. **Load `references/sh-environment.md` only when `SH` is passed** — it carries project-specific credentials/commands that don't belong in a generic debugging session.
