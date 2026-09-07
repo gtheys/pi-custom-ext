@@ -138,6 +138,7 @@ Register in `packages/pi-planning/plan-tools/index.ts`.
 #### Manual Verification
 
 - [ ] `tw_execution_plan` with a feature UUID returns sorted tree + resume target
+- [ ] Feature tasks visible via `task jirastatus:Local +feature`
 - [ ] `resolve_feature_path` honors `$PERSONAL_FEATURES` when set
 
 **Implementation Note**: Pause for manual confirmation after automated checks pass.
@@ -160,7 +161,7 @@ The feature flow becomes a first-class skill; create-plan and implement-plan upd
 2. `resolve_feature_path` → artifact folder
 3. Scout subagent(s) (plan-skill Phase 2 pattern, explicit artifact paths)
 4. Lightweight interview (feature-ticket pattern — one focused round, 3–6 questions)
-5. Create the feature task: `task add ... project:<repo> +feature priority:M`, annotate interview results; capture UUID; pseudo-ID `FEATURE-<uuid8>`
+5. Create the feature task: `task add ... project:<repo> +feature priority:M jirastatus:Local` (jirastatus UDA exists and is a string — `Local` distinguishes feature-flow tasks in reports and filters, and makes them visible in the default `task list`, which excludes `jirastatus:Backlog`); annotate interview results; capture UUID; pseudo-ID `FEATURE-<uuid8>`. Phases and subtasks are also created with `jirastatus:Local`.
 6. Spawn interactive planner agent (`agent: "planner"`, `interactive: true`), task = request + scout context + interview answers + **plan.md target path** + **taskwarrior output contract** (phase/subtask numbering `N.` / `N.M`, tags `+phase +impl` / `+impl`, `depends:` feature UUID then phase UUIDs, `work_state:todo`, annotate each task with the artifact folder path)
 7. After planner exits: verify hierarchy with `tw_execution_plan feature_uuid`, present tree to user
 8. Fallback (no subagent tool): main session writes plan.md + creates the hierarchy itself
@@ -171,7 +172,7 @@ The feature flow becomes a first-class skill; create-plan and implement-plan upd
 
 #### 3. Update implement-plan
 **File**: `skills/engineering/implement-plan/SKILL.md`
-**Changes**: Add feature-variant entry: resume via `tw_execution_plan` with `feature_uuid` (found through `task +feature` list or the annotated path), worker loop unchanged, `tw_phase_checkpoint` called with `jira_id: "FEATURE-<uuid8>"`. Skip `jira_create_branch` for features — plain branch naming.
+**Changes**: Add feature-variant entry: resume via `tw_execution_plan` with `feature_uuid` (found through `task +feature jirastatus:Local status:pending` list or the annotated path), worker loop unchanged, `tw_phase_checkpoint` called with `jira_id: "FEATURE-<uuid8>"`. Skip `jira_create_branch` for features — plain branch naming.
 
 ### Success Criteria
 
@@ -242,7 +243,7 @@ None — one extra `readFileSync` per `/plan` invocation.
 ## Migration Notes
 
 - Existing `plan-skill.md` flow remains reachable as the fallback; no breaking change for standalone installs.
-- Existing local-feature Step F tickets (if any) remain valid taskwarrior data; nothing migrates.
+- Existing local-feature Step F tickets (if any) remain valid taskwarrior data; nothing migrates. Optionally stamp existing in-flight feature trees once with `task <uuids> modify jirastatus:Local` (done for feature 4f976638).
 
 ## References
 
