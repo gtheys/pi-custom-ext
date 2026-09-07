@@ -28,6 +28,7 @@ import { registerGetPhasesAndImplTasks } from './get-phases-impl.ts'
 import { registerTwGetSpecTask } from './get-spec-task.ts'
 import { registerTwGetTicket } from './get-ticket.ts'
 import { extractSpecPath, getRepoName } from './helpers.ts'
+import { openFileInPane, registerOpenInPane } from './open-in-pane.ts'
 import { registerResolveFeaturePath } from './resolve-feature-path.ts'
 import { registerResolveSpecPath } from './resolve-spec-path.ts'
 
@@ -40,6 +41,7 @@ export default function (pi: ExtensionAPI) {
   registerTwCreateSpecTask(pi)
   registerTwCreatePhase(pi)
   registerTwCreateImplTask(pi)
+  registerOpenInPane(pi)
 
   // AIDEV-NOTE: Smart routing — checks for existing spec file to decide
   // between create-plan and iterate-plan flows.
@@ -87,6 +89,25 @@ export default function (pi: ExtensionAPI) {
       } else {
         ctx.ui.notify(`No spec → create-plan`, 'info')
         pi.sendUserMessage(`/skill:create-plan ${jiraId}`)
+      }
+    },
+  })
+
+  pi.registerCommand('review-spec', {
+    description: 'Open a spec/plan file with glow in a herdr review pane',
+    handler: async (args, ctx) => {
+      const path = args.trim()
+      if (!path) {
+        ctx.ui.notify('Usage: /review-spec <path>', 'warning')
+        return
+      }
+
+      const result = await openFileInPane(pi, path)
+      const text = result.content[0]?.text ?? ''
+      if (result.details.ok) {
+        ctx.ui.notify(text, 'info')
+      } else {
+        ctx.ui.notify(text, 'error')
       }
     },
   })

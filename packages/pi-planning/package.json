@@ -26,6 +26,7 @@
     "plan-tools/get-phases-impl.ts",
     "plan-tools/resolve-spec-path.ts",
     "plan-tools/resolve-feature-path.ts",
+    "plan-tools/open-in-pane.ts",
     "plan-tools/create-spec-task.ts",
     "plan-tools/create-phase.ts",
     "plan-tools/create-impl-task.ts",
