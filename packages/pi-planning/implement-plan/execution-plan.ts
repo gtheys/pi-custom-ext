@@ -268,7 +268,10 @@ export function registerTwExecutionPlan(pi: ExtensionAPI) {
     async execute(_id, params) {
       const paramError = validatePlanParams(params)
       if (paramError) {
-        return { content: [{ type: 'text', text: paramError }] }
+        return {
+          content: [{ type: 'text', text: paramError }],
+          details: { found: false, plan: undefined },
+        }
       }
 
       if (params.feature_uuid) {
@@ -301,13 +304,16 @@ export function registerTwExecutionPlan(pi: ExtensionAPI) {
         }
       }
 
-      const all = await twExport(pi, [`jiraid:${params.jira_id}`, '+impl'])
+      // After validation exactly one of the two params is set; the feature
+      // branch returned above, so jira_id is defined here.
+      const jiraId = params.jira_id as string
+      const all = await twExport(pi, [`jiraid:${jiraId}`, '+impl'])
       if (all.length === 0) {
         return {
           content: [
             {
               type: 'text',
-              text: `No impl tasks found for ${params.jira_id}. Run bugwarrior-pull or check the Jira ID.`,
+              text: `No impl tasks found for ${jiraId}. Run bugwarrior-pull or check the Jira ID.`,
             },
           ],
           details: {
@@ -317,7 +323,7 @@ export function registerTwExecutionPlan(pi: ExtensionAPI) {
         }
       }
 
-      const plan = buildExecutionPlan(params.jira_id, all)
+      const plan = buildExecutionPlan(jiraId, all)
       const summary = planSummary(plan)
 
       return {
