@@ -15,39 +15,13 @@ When this skill is invoked:
    - Immediately fetch ticket details from taskwarrior
    - Skip the default message
 
-2. **If no Jira ID provided**, start the **local feature flow** (Step F below): delegate the interview and ticket creation to the `/skill:feature-ticket` skill, then continue with the spec phase. Do not ask for a Jira ID — local features have none.
+2. **If no Jira ID provided**, start the **local feature flow** (Step F below): delegate the entire flow to `/skill:feature-plan`. Do not ask for a Jira ID — local features have none.
 
 ## Step F: Local Feature Flow (no Jira ID)
 
-Use this flow when the skill is invoked without a Jira ID. The feature lives entirely in taskwarrior — no Jira ticket, no `jiraid` UDA, `+feature` tag. The feature task replaces the Jira ticket as the top of the task tree.
+Use this flow when the skill is invoked without a Jira ID. **Delegate the entire flow to `/skill:feature-plan`** — it owns the interview, the scout subagents, the interactive planner agent, the `resolve_feature_path` artifact folder (`$PERSONAL_FEATURES/<repo>/<date>-<slug>/plan.md`), and the taskwarrior hierarchy (feature task `+feature` `jirastatus:Local` → phases → subtasks). Do not re-implement any of it here.
 
-### F.1 Delegate interview + ticket creation to `/skill:feature-ticket`
-
-The `feature-ticket` skill owns the interview-and-create flow — don't re-implement it here. Invoke `/skill:feature-ticket` and let it run to completion: it grounds in the project, runs one focused interview round, drafts the ticket content, and writes the taskwarrior task with `+feature` (and `Goal:` / `Done when:` / etc. annotations).
-
-Hard requirements to enforce on the ticket it creates (tell the skill, or verify afterwards):
-
-- **No `jiraid` UDA** — leave it blank. This is the defining marker of a local feature.
-- `+feature` tag — required, distinguishes local features from Jira-synced tasks.
-- Project is the bare repo/app name — **no `SalaryHero.` prefix**.
-
-### F.2 Capture the feature task UUID
-
-After `feature-ticket` creates the task, capture its UUID — downstream steps use it as the parent for the spec and phase tasks:
-
-```bash
-FEATURE_UUID=$(task rc.verbose=off <id> _uuid | tail -1)
-```
-
-If the numeric id isn't already known, find the newest feature task:
-
-```bash
-FEATURE_UUID=$(task rc.verbose=off rc.report._x.columns=uuid rc.report._x.filter=+feature _x | tail -1)
-```
-
-### F.3 Continue to spec phase
-
-Proceed to **Step 1: Research & Discovery**. Skip Step 0's `tw_get_ticket` (there is no Jira task) — the feature-ticket annotations are the ticket context. In Steps 4 and 5, use the local-feature variants documented there (bash taskwarrior, not the `tw_*` tools — those key off `jiraid` and don't fit features).
+After `feature-plan` completes, this skill's remaining responsibilities for the feature are Step 6 (review & iterate — update `plan.md` and the taskwarrior tree together) — everything else (path resolution, planner, hierarchy creation) already happened.
 
 ## Resolving the Spec File Location
 
@@ -60,13 +34,15 @@ returned path verbatim (do not shorten it, do not fall back to a repo-relative
 `notes/specs/...` path, do not `mkdir` a `notes/` folder in the repo yourself).
 Only when `$LLM_NOTES_ROOT` is unset does the tool fall back to a repo-local
 `notes/specs/` path. Check `echo $LLM_NOTES_ROOT` if unsure before writing.
+For local features (Step F) this section does not apply — `feature-plan` uses
+`resolve_feature_path` (`$PERSONAL_FEATURES` / `.pi/plans/`) instead.
 
 Example result when `$LLM_NOTES_ROOT` is unset: `notes/specs/IMP-7070__implement-user-balance-write.md`
 Example result when set: `$LLM_NOTES_ROOT/<repo>/notes/specs/IMP-7070__implement-user-balance-write.md`
 
 ## Step 0: Fetch Ticket Context from Taskwarrior
 
-> **Skip this entire step for local features** (Step F flow). There is no Jira task to fetch — use the F.1 interview notes as ticket context and jump to Step 1.
+> **Skip this entire step for local features** (Step F flow delegates to `feature-plan`, which owns its own context gathering).
 
 ### 0.1 Fetch the Jira task
 
@@ -219,7 +195,7 @@ Once aligned on approach:
 
 After structure approval:
 
-1. **Resolve the spec path** using the `resolve_spec_path` tool with the Jira ID and `jirasummary`. For local features (Step F), pass `jira_id="FEATURE-<short-uuid-8>"` where `<short-uuid-8>` is the first 8 chars of `$FEATURE_UUID`, and the feature summary as `summary`. The resulting filename reads `FEATURE-<uuid8>__<slug>.md` and ties the spec to the feature task.
+1. **Resolve the spec path** using the `resolve_spec_path` tool with the Jira ID and `jirasummary`.
 
 2. **Write the spec** to the exact path the tool returned — never substitute a repo-local `notes/specs/...` path when `$LLM_NOTES_ROOT` is set.
 
@@ -229,27 +205,13 @@ After structure approval:
 
 After the spec is written and approved, create the taskwarrior tracking structure.
 
-> **Note:** All tasks are created under `SalaryHero.$PROJECT` — the tools handle this prefix automatically. **Local features (Step F) are the exception:** use the project verbatim (no `SalaryHero.` prefix) and use the raw-taskwarrior variants documented under 5.1 and 5.2.
+> **Note:** All tasks are created under `SalaryHero.$PROJECT` — the tools handle this prefix automatically. Local features never reach this step (Step F delegates to `feature-plan`).
 
 ### 5.1 Create spec task (if not already existing)
 
 Check with `tw_get_spec_task`. If no spec task exists, use `tw_create_spec_task` with:
 - `jira_id`, `summary`, `project`, `repo`
 - `spec_path` — the relative path returned by `resolve_spec_path` (relative portion, e.g. `notes/specs/IMP-7070__slug.md`)
-
-#### Local feature variant (no `jiraid`)
-
-The `tw_*` tools key off `jiraid` and don't fit local features — use raw taskwarrior instead. Create a separate spec task that depends on the feature ticket, mirroring the SalaryHero data model:
-
-```bash
-# Spec task depends on the feature ticket
-SPEC_UUID=$(task add "SPEC: <summary>" project:<project> +spec depends:$FEATURE_UUID work_state:approved 2>&1 | grep -oP 'task \K[0-9]+' | head -1 | xargs -I{} task rc.verbose=off {} _uuid | tail -1)
-
-# Annotate with spec path (same format tw_create_spec_task uses)
-task $SPEC_UUID annotate "Spec(repo=<repo>): <relpath>"
-```
-
-The `<relpath>` is the relative portion of the path from `resolve_spec_path` (e.g. `notes/specs/FEATURE-<uuid8>__<slug>.md`).
 
 ### 5.2 Create phase and implementation tasks
 
@@ -258,23 +220,9 @@ For each phase in the spec:
 1. Use `tw_create_phase` — returns the phase UUID
 2. Use `tw_create_impl_task` for each task under that phase, passing the phase UUID as `depends_uuid`
 
-#### Local feature variant (no `jiraid`)
-
-Use raw taskwarrior. Phases depend on the spec task UUID (mirroring SalaryHero structure); subtasks depend on their phase UUID:
-
-```bash
-# Phase task
-PHASE_UUID=$(task add "<N>. Phase: <phase-name>" project:<project> +phase +impl depends:$SPEC_UUID work_state:todo 2>&1 | grep -oP 'task \K[0-9]+' | head -1 | xargs -I{} task rc.verbose=off {} _uuid | tail -1)
-
-# Implementation subtask
-task add "<N.M> <task-title>" project:<project> +impl depends:$PHASE_UUID work_state:todo
-```
-
-The `description` prefixes (`1. Phase:`, `1.1`) matter — `tw_execution_plan` and the implement-plan skill sort by them.
-
 ### 5.3 Report created structure
 
-Present the full task hierarchy. For Jira-linked plans:
+Present the full task hierarchy:
 
 ```
 Taskwarrior hierarchy created for $JIRA_ID:
@@ -292,18 +240,7 @@ Taskwarrior hierarchy created for $JIRA_ID:
    └── 2.2 <task-title> [todo]
 ```
 
-For local features, prepend the feature ticket and substitute `FEATURE-<uuid8>` for `$JIRA_ID`:
 
-```
-🎟️ Feature: <summary> [+feature]
-   └── UUID: $FEATURE_UUID
-
-📋 Spec: SPEC: <summary> [+spec]
-   └── Spec file: notes/specs/FEATURE-<uuid8>__<slug>.md
-
-📦 Phase 1: <phase-name> [todo]
-   ...
-```
 
 ## Step 6: Review & Iterate
 
@@ -316,7 +253,7 @@ For local features, prepend the feature ticket and substitute `FEATURE-<uuid8>` 
 This skill works with:
 
 - `subagent` tool (pi-interactive-subagents) — **Required.** Spawns `scout` agents for codebase research in Steps 1 and 2. Requires a terminal multiplexer (see pi-interactive-subagents setup).
-- `/skill:feature-ticket` — **Required for local features (Step F).** Owns the interview and taskwarrior ticket creation; create-plan delegates to it instead of re-implementing the flow.
+- `/skill:feature-plan` — **Required for local features (Step F).** Owns the entire local-feature flow (interview, scout, planner agent, artifact folder, taskwarrior hierarchy); create-plan delegates to it instead of re-implementing.
 - `/skill:notes-locator` — Find existing specs, research docs, tickets, and PR descriptions in the notes directory (quick main-session lookups).
 - `read` / `sem_context` — Verify specific load-bearing claims from scout reports.
 - `/skill:implement-plan` — When the spec is approved and ready for development.
@@ -371,7 +308,7 @@ Always separate into two categories:
 
 ## Spec Template
 
-For local features (Step F), substitute `FEATURE-<uuid8>` for `$JIRA_ID`, drop the `**Jira Ticket:**` and `**Issue Type:**` lines, and replace `$jiraurl` with the feature task UUID reference.
+For local features (Step F) the spec template is owned by `feature-plan` — see its plan.md structure. This template is Jira-only.
 
 ```markdown
 # [$JIRA_ID] $Title Implementation Plan

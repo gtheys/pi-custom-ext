@@ -180,7 +180,7 @@ The feature flow becomes a first-class skill; create-plan and implement-plan upd
 
 #### Automated Verification
 
-- [ ] `bun run lint` passes (skills not linted, but repo-wide check stays green)
+- [x] `bun run lint` passes (skills not linted, but repo-wide check stays green)
 
 #### Manual Verification
 

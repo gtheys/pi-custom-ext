@@ -1,6 +1,6 @@
 ---
 name: implement-plan
-description: Execute an approved implementation spec by driving the work from taskwarrior. Given a Jira ID, locate the spec task, parse its annotation for the spec file, then walk the phase tasks (+phase tag) and their subtask trees (depends:) in order. Use when the user says "implement DP-121", "start work on IMP-7070", "continue the spec for <JIRA-ID>", "resume implementing <JIRA-ID>", or names a Jira ticket that has an approved spec. Do NOT use to author new specs — route those to create-plan.
+description: Execute an approved implementation spec by driving the work from taskwarrior. Given a Jira ID, locate the spec task, parse its annotation for the spec file, then walk the phase tasks (+phase tag) and their subtask trees (depends:) in order. Use when the user says "implement DP-121", "start work on IMP-7070", "continue the spec for <JIRA-ID>", "resume implementing <JIRA-ID>", "implement feature <uuid>", "resume feature plan", "continue the feature plan", or names a Jira ticket or local feature UUID that has an approved spec/plan. Do NOT use to author new specs — route those to create-plan or feature-plan.
 ---
 
 # Implement Plan
@@ -9,11 +9,13 @@ Taskwarrior is the source of truth for *what* to do and *in what order*. The spe
 
 ## Input contract
 
-The user provides a **Jira ID** (e.g. `DP-121`). That's the only entry point. You can also be invoked via `/implement <JIRA_ID>` — in that case the execution plan summary is pre-populated in the prompt; use it but still call `tw_execution_plan` to get the full structured data.
+The user provides **either a Jira ID** (e.g. `DP-121`) **or a feature UUID** — full or short prefix (e.g. `4f976638`) — of a local feature task (`+feature jirastatus:Local`). You can also be invoked via `/implement <JIRA_ID>` — in that case the execution plan summary is pre-populated in the prompt; use it but still call `tw_execution_plan` to get the full structured data.
 
-If no Jira ID is given:
+If neither is given, or the short prefix is ambiguous, ask:
 
-> Which Jira ticket should I implement? I need the ID so I can pull the task tree from taskwarrior.
+> Which Jira ticket or feature should I implement? I need the ID (or feature UUID) so I can pull the task tree from taskwarrior.
+
+To find a feature UUID, list local features with `task features` (custom report: id, uuid.short, description of +feature tasks) or `task +feature jirastatus:Local status:pending export`.
 
 ## Taskwarrior data model — what to expect
 
@@ -41,13 +43,34 @@ Jira task         status:pending  tags:[jira]            work_state:new
         └── Subtask "2.1 ..."   depends: [<phase-uuid>]
 ```
 
+### The feature tree
+
+Local features (planned via `/skill:feature-plan`) have the same shape but no Jira and no spec task layer:
+
+```
+Feature task  status:pending  tags:[feature]        jirastatus:Local  work_state:todo
+    description: "<feature description>"
+    annotation: "Spec(repo=<repo>): <plan.md path>"
+  └── Phase task  status:pending  tags:[impl, phase]  work_state:todo
+        description: "1. Phase: <title>"
+        depends: [<feature-uuid>]
+        └── Subtask   status:pending  tags:[impl]     work_state:todo
+              description: "1.1 <title>"
+              depends: [<phase-uuid>]
+```
+
+No `jiraid`, no spec task — the plan.md path lives as a `Spec(repo=<repo>): <path>` annotation on the feature task itself.
+
 ## Step 1 — Pull the execution plan
 
-Call `tw_execution_plan` with the Jira ID:
+Call `tw_execution_plan` with the Jira ID — or, for a local feature, the feature UUID (`feature_uuid` and `jira_id` are mutually exclusive):
 
 ```
 tw_execution_plan({ jira_id: "DP-121" })
+tw_execution_plan({ feature_uuid: "<uuid>" })
 ```
+
+For features, skip the Step 1b bug fast path entirely — features have no `jiraissuetype` and `tw_get_ticket` returns nothing for a feature ID; do not call it.
 
 This returns:
 - `plan.phases[]` — sorted by N. prefix, each with `uuid`, `number`, `name`, `work_state`, `subtasks[]`
@@ -55,7 +78,7 @@ This returns:
 - `plan.currentSubtask` — first non-done subtask within that phase (resume target)
 - `plan.doneSubtasks / plan.totalSubtasks` — progress counters
 
-**Immediately after pulling the plan**, call `tw_get_ticket` to check the issue type — do this before evaluating whether impl tasks exist:
+**Immediately after pulling the plan** (Jira only), call `tw_get_ticket` to check the issue type — do this before evaluating whether impl tasks exist:
 
 ## Step 1b — Bug fast path check (runs before any "no impl tasks" guard)
 
@@ -93,7 +116,9 @@ Ask the user one question:
 
 *(Skip entirely for bugs — use the bug fast path above.)*
 
-Call `tw_get_spec_task` to get the spec task and extract the spec file path:
+**Feature variant:** no `tw_get_spec_task` — features have no spec task. The plan.md path is annotated on the feature task as `Spec(repo=<repo>): <path>`; read it via `task <uuid> export` and grep the annotation, or the user provides it. Resolve relative paths against the repo root; `$PERSONAL_FEATURES/<repo>/...` paths are absolute. plan.md plays the role of the spec, and the `work_state` approval gate does not apply — features are planned through `/skill:feature-plan`, which has no approved state to check.
+
+**Jira variant:** call `tw_get_spec_task` to get the spec task and extract the spec file path:
 
 ```
 tw_get_spec_task({ jira_id: "DP-121" })
@@ -108,6 +133,10 @@ If the spec task's `work_state` is not `approved`, warn once and ask whether to 
 ## Step 3 — Verify working branch
 
 Before touching any code, confirm the workspace is on the correct feature branch.
+
+**Feature variant:** no `jira_create_branch`. Stay on the current branch; if the user is on main/master and about to edit, suggest a plain branch name (e.g. `feat/<feature-slug>`) — one sentence, no tool call.
+
+**Jira variant:**
 
 ### 3a — Derive the expected branch name
 
@@ -169,6 +198,8 @@ tw_advance_task({ uuid: "<phase-uuid>", state: "inprogress", description: "1. Ph
 ```
 
 ### 5b — For each subtask under that phase (starting from `plan.currentSubtask`):
+
+**Trivial-subtask escape hatch** (both Jira and feature flows): a subtask touching ≤2 lines with no logic change (typo, README line, constant) may be implemented inline in the main session instead of spawning a worker — same steps otherwise (advance inprogress, edit, run tests if applicable, tick spec box, advance done). When in doubt, spawn the worker.
 
 1. `tw_advance_task({ uuid: "<subtask-uuid>", state: "inprogress", description: "1.1 ..." })`
 2. Read the spec section for this subtask fully, and skim the files it touches — enough to write a precise worker task.
@@ -243,6 +274,8 @@ tw_phase_checkpoint({
   phase_name: "Setup"
 })
 ```
+
+For features, pass the pseudo-ID as the (opaque) `jira_id` label — `FEATURE-<uuid8>` (e.g. `FEATURE-4f976638`) — yielding a commit message like `feat(FEATURE-4f976638): Phase 1 - Setup`.
 
 This marks the phase done in taskwarrior and returns a `commitMessage`. Present it to the user:
 
