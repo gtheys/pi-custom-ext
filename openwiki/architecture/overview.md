@@ -8,7 +8,7 @@ root `package.json` and loads each listed module directly with Bun/Node's ESM lo
 
 ```json
 "pi": {
-  "extensions": [ "./packages/pi-bootstrap/index.ts", "./packages/pi-context/context.ts", ... ],
+  "extensions": [ "./packages/pi-bootstrap/index.ts", "./packages/pi-interactive-subagents/pi-extension/subagents/index.ts", ... ],
   "skills": ["./skills"],
   "prompts": ["./prompts"],
   "themes": ["./themes"]
@@ -41,22 +41,28 @@ publishing.
 
 ```
 packages/
-├── pi-bootstrap/        no deps — pure side effect on session_start
-├── pi-context/           /context command, standalone
-├── pi-desktop-notify/    /notify command, standalone
-├── pi-fastcontext/       fast_context_search tool + /fastcontext, standalone
-├── pi-tool-pills/        wraps ls/read/find/grep/bash/write/edit tool RENDERING only
-├── pi-test-runner/       run_tests tool, spawns a detached subagent
-├── pi-sem/               sem_* tools, wraps the external `sem` CLI (@ataraxy-labs/sem)
+├── pi-bootstrap/             no deps — pure side effect on session_start
+├── pi-ask-user-question/     ask_user_question tool (interactive TUI dialogs), standalone
+├── pi-prompt-snippets/       one-shot prompt snippet toggles (alt+s / /snippets), standalone
+├── pi-desktop-notify/        /notify command, standalone
+├── pi-fastcontext/           fast_context_search tool + /fastcontext, standalone
+├── pi-tool-pills/            wraps ls/read/find/grep/bash/write/edit tool RENDERING only
+├── pi-interactive-subagents/ subagent tool + /plan dispatch; vendored, exports
+│                             programmatic launchSubagent/watchSubagent API
+├── pi-test-runner/           run_tests tool, launches a test-runner agent via ↑
+├── pi-sem/                   sem_* tools, wraps the external `sem` CLI (@ataraxy-labs/sem)
 ├── pi-planning/
-│   ├── shared/tw-utils.ts     ← shared by both siblings below
-│   ├── plan-tools/            tw_* tools for spec creation (create-plan skill)
-│   └── implement-plan/        tw_* tools for phased execution (implement-plan skill)
-└── pi-review/
-    ├── shared/sonarqube-utils.ts  ← shared by sonarqube.ts and pr-quality
-    ├── review/review.ts           /review command
-    ├── sonarqube/sonarqube.ts     /sonarqube command
-    └── pr-quality/index.ts        /pr-quality + /pr-watch commands
+│   ├── shared/               ← shared by both siblings below (tw-utils + jira-branch)
+│   ├── plan-tools/           tw_* tools for spec/plan creation (create-plan/feature-plan skills)
+│   └── implement-plan/       tw_* tools for phased execution (implement-plan skill)
+├── pi-review/
+│   ├── shared/sonarqube-utils.ts  ← shared by sonarqube.ts and pr-quality
+│   ├── review/review.ts           /review command (spawns a reviewer agent via ↑)
+│   ├── sonarqube/sonarqube.ts     /sonarqube command
+│   └── pr-quality/index.ts        /pr-quality + /pr-watch commands
+├── pi-teams-transcript/      teams_transcript tool (MS Graph)
+├── pi-pr-digest/             pr_digest tool + /pr-digest (gh CLI), standalone
+└── pi-worktree/              worktree tool — Herdr worktree workspaces (create/list/remove)
 ```
 
 Two packages internally share code across sibling extensions rather than being split
@@ -65,19 +71,25 @@ co-located with their only consumer"). Don't extract a new package for a helper 
 by exactly one other file; keep them next to each other like `pi-planning/shared` and
 `pi-review/shared` do.
 
-## Extensions never call each other directly
+## Cross-package dependencies: exactly one, deliberately
 
-Nothing in `packages/*` imports another top-level package's `index.ts`. Coordination
-happens through:
+`pi-interactive-subagents` was vendored into the monorepo and publishes a
+programmatic API (`launchSubagent`/`watchSubagent` from `@gtheys/pi-interactive-subagents`).
+Two packages import it as a real workspace dependency: `pi-test-runner` (spawns its
+test-runner agent through it) and `pi-review` (spawns its reviewer agent through it).
+Everything else still coordinates without imports:
 - **taskwarrior** as external state (`plan-tools` writes tasks, `implement-plan` reads
   them) — see `workflows/planning-and-implementation.md`.
 - **git/gh CLI** as external state (`pi-review`'s three commands all shell out to `gh`
   and `git`).
 - **pi's own event bus** (`session_start`, `agent_end`) for cross-cutting concerns like
   desktop notifications and AGENTS.md bootstrapping.
+- **skill files** as the glue between `/plan` (registered by `pi-interactive-subagents`)
+  and the `pi-planning` tools the skills call — see the dependency map in `README.md`.
 
-This keeps every package independently loadable/testable and avoids a shared
-"core" package that everything depends on (YAGNI — there's no such core today).
+Notably `pi-planning`'s `open_in_pane` shells out to the `herdr` CLI directly instead
+of importing pi-interactive-subagents (in-file AIDEV-NOTE: no cross-package dependency
+for 3 exec calls).
 
 ## External processes each extension shells out to
 
@@ -86,11 +98,14 @@ This keeps every package independently loadable/testable and avoids a shared
 | `pi-bootstrap` | none (fs only) | symlink AGENTS.md |
 | `pi-planning` (both) | `task` (taskwarrior CLI) | ticket/spec/phase/subtask state lives in taskwarrior, not in this repo |
 | `pi-sem` | `sem` CLI (`@ataraxy-labs/sem`, optional dep) | entity-aware git diff/impact/context/blame |
-| `pi-review/review` | `git`, `gh` | checkout PRs, diff branches/commits |
+| `pi-review/review` | `git`, `gh`, + reviewer agent via `pi-interactive-subagents` | checkout PRs, diff branches/commits, run the review in a subagent pane |
 | `pi-review/sonarqube` | SonarCloud REST API (`sonarFetch`) | coverage + issues |
 | `pi-review/pr-quality` | `gh api graphql`, SonarCloud API | unresolved review threads + Sonar issues in one pass |
 | `pi-fastcontext` | local FastContext server (llama.cpp, `127.0.0.1:8772`) | fast semantic code search without a full agent turn |
-| `pi-test-runner` | spawns a **detached pi subagent** process with its own session file | isolate test runs so they don't block the main conversation |
+| `pi-interactive-subagents` | multiplexer CLI (cmux/tmux/zellij/wezterm/herdr) | sub-agents run in real terminal panes, results steer back into the session |
+| `pi-test-runner` | test scripts via the `pi-interactive-subagents` API | isolate test runs in a `test-runner` agent so they don't block the conversation |
+| `pi-pr-digest` | `gh` CLI | PR author/comment/review status across an org |
+| `pi-worktree` | `herdr`, `git`, optional `acli`/`gh`/`git-town` + package manager | create/list/remove worktree workspaces |
 | `pi-desktop-notify` | `notify-send` | desktop notification on idle-after-work |
 
 ## Next

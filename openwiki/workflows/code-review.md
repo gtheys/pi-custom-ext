@@ -19,6 +19,11 @@ Modes: `/review pr 123`, `/review pr <url>`, `/review uncommitted`,
 `/review branch main`, `/review commit <sha>`, `/review folder src docs` (snapshot, not
 diff), `/review custom "<instructions>"`. No args → interactive selector.
 
+- When a supported multiplexer is available, `/review` spawns a **`reviewer`
+  subagent** via `pi-interactive-subagents`' programmatic API (`launchSubagent`)
+  — the review runs in its own pane and findings steer back into the session when
+  done. The legacy in-session path remains as fallback (no mux, or spawn failed);
+  with a mux, every mode runs in the subagent.
 - PR-review mode checks the PR out locally via `gh`/`git` and **requires a clean
   working tree** (refuses if there are uncommitted changes to tracked files) — it
   can't safely check out a branch over dirty state.

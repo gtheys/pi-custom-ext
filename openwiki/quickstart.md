@@ -74,7 +74,10 @@ Bump versions manually in each `packages/*/package.json` before releasing.
 ```
 pi-my-rifle-ext/
 ├── packages/       # bun workspace packages — one per pi extension group
-├── skills/         # SKILL.md-driven agent skills (engineering/productivity/tools)
+│                   #   (ask-user-question, prompt-snippets, interactive-subagents,
+│                   #    planning, review, test-runner, fastcontext, sem, tool-pills,
+│                   #    desktop-notify, teams-transcript, pr-digest, worktree, bootstrap)
+├── skills/         # SKILL.md-driven agent skills (engineering/tools)
 ├── prompts/        # slash-command prompt templates
 ├── themes/         # theme JSON (tokyo-night)
 ├── agents/AGENTS.md  # symlinked to ~/.pi/agent/AGENTS.md by pi-bootstrap on startup

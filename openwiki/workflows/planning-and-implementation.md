@@ -1,8 +1,20 @@
 # Planning & Implementation Workflow
 
-How a Jira ticket becomes a written spec, then a phased, resumable implementation —
-end to end across the `pi-planning` extensions, taskwarrior, and the
-`create-plan`/`iterate-plan`/`implement-plan` skills.
+How a Jira ticket — or a local personal feature — becomes a written spec/plan, then a
+phased, resumable implementation, end to end across the `pi-planning` extensions,
+`pi-interactive-subagents` (the `/plan` dispatcher), taskwarrior, and the
+`create-plan`/`feature-plan`/`iterate-plan`/`implement-plan` skills.
+
+## Two entry flows, one dispatcher
+
+`/plan` is registered by `pi-interactive-subagents` (first registration wins in the
+monorepo; `pi-planning`'s own `/plan` only loads for standalone npm installs of that
+package). It dispatches on argument shape:
+
+- **`/plan <JIRA_ID>`** → injects the **create-plan** skill (or **iterate-plan** if a
+  spec file already exists — `pi-planning`'s routing logic).
+- **`/plan <free text>`** → injects the **feature-plan** skill (local feature, no Jira).
+- Skills unreadable (standalone install) → bundled generic `plan-skill.md` fallback.
 
 ## Why taskwarrior, not a file in the repo
 
@@ -15,12 +27,16 @@ lives in a markdown file; taskwarrior tracks structured progress against it.
 
 | Extension | Skill it backs | Responsibility |
 |---|---|---|
-| `pi-planning/plan-tools` | `create-plan`, `iterate-plan` | Turn a Jira ticket into a spec file + phase/subtask task tree |
+| `pi-interactive-subagents` | `/plan` dispatch | Route the argument to create-plan / feature-plan (or the bundled fallback) |
+| `pi-planning/plan-tools` | `create-plan`, `feature-plan`, `iterate-plan` | Turn a Jira ticket into a spec file + phase/subtask task tree; resolve plan.md paths for local features |
 | `pi-planning/implement-plan` | `implement-plan` | Walk that task tree, advancing state, checkpointing phases |
 
-Both share `packages/pi-planning/shared/tw-utils.ts` (`twExport`) — the only code they
-have in common. Everything else about "how a spec is written" vs "how it's executed"
-is intentionally separate.
+Both share `packages/pi-planning/shared/` (`tw-utils.ts`, `jira-branch.ts`) — the only
+code they have in common. Everything else about "how a spec is written" vs "how it's
+executed" is intentionally separate. Research and implementation themselves run in
+**subagents** (scout/worker/planner agents from `pi-interactive-subagents`) when a
+multiplexer is available; every skill documents an in-session fallback when the
+`subagent` tool is missing.
 
 ## 1. Spec creation (`/plan <JIRA_ID>`)
 
@@ -48,11 +64,38 @@ is intentionally separate.
    `"N. Phase: <name>"`, `work_state:todo`. Returns a UUID.
 6. `tw_create_impl_task` (per subtask) — creates a `+impl` task titled
    `"N.M <description>"`, `depends:<phase UUID>`, `work_state:todo`.
+7. `jira_create_branch` — derives and creates the feature branch (type → prefix,
+   summary → slug), sets its git-town parent to `develop`. Requires `acli` +
+   `git-town`; this replaced the old `jira-branch.sh` shell script.
+8. `open_in_pane` — after the spec is written, opens it with `glow` in a herdr
+   `spec-review` pane for human review. Skippable and non-blocking — the flow
+   continues if herdr is unavailable.
 
-`/plan <JIRA_ID>` itself just routes: if a spec file already exists → **iterate-plan**
-skill; otherwise → **create-plan** skill. The routing decision, not the file writing,
-is what the command does — actual spec authoring is the skill's job (see
-`skills/engineering/create-plan/SKILL.md` and `iterate-plan/SKILL.md`).
+`/plan <JIRA_ID>` routing (spec file exists?): iterate-plan vs create-plan — the
+routing decision, not the file writing, is what the commands do — actual spec
+authoring is the skill's job (see `skills/engineering/create-plan/SKILL.md`,
+`feature-plan/SKILL.md`, and `iterate-plan/SKILL.md`). Research runs in parallel
+**scout** subagents during spec creation.
+
+## 1b. Local feature flow (`/plan <free text>` → feature-plan skill)
+
+No Jira ticket involved; state lives in taskwarrior under a `+feature` task stamped
+`jirastatus:Local`:
+
+1. **Interview** — flesh the vague idea out with the user.
+2. **Scout** — codebase research in scout subagents (parallel).
+3. **Plan** — an interactive **planner** agent (driven by the user in its own pane)
+   drafts the plan.
+4. `resolve_feature_path` — compute the canonical `plan.md` path:
+   `$PERSONAL_FEATURES/<repo>/<date>-<slug>/plan.md` if `$PERSONAL_FEATURES` is set,
+   else `<git-toplevel>/.pi/plans/<date>-<slug>/plan.md`.
+5. **Taskwarrior hierarchy** — created via raw `task` CLI (feature → phases →
+   subtasks, same `N.` / `N.M` description prefixes, `+phase`/`+impl` tags) so
+   `tw_execution_plan` can walk it later via `feature_uuid`.
+6. `open_in_pane` — open `plan.md` with glow for review (skippable, same as specs).
+
+The **feature-ticket** skill is the lighter sibling: interview → a single taskwarrior
+ticket, no plan file, no phases.
 
 ## 2. Task numbering convention (must match exactly)
 
@@ -65,12 +108,14 @@ is what the command does — actual spec authoring is the skill's job (see
   taskwarrior's own ordering or creation time. If you hand-edit a task title and break
   this pattern, `tw_execution_plan` will fail to place it correctly.
 
-## 3. Execution (`/implement <JIRA_ID>`)
+## 3. Execution (`/implement <JIRA_ID>` or `/implement feature <uuid>`)
 
 `packages/pi-planning/implement-plan/index.ts`
 
-1. **`tw_execution_plan`** — fetches all `+impl` tasks for the Jira ID, groups them
-   into phases with nested subtasks, sorted by numeric prefix, and computes:
+1. **`tw_execution_plan`** — fetches all `+impl` tasks for a **Jira ID or a local
+   feature UUID** (`feature_uuid`, mutually exclusive with `jira_id`; local feature
+   hierarchies are found via the `+feature` task's UUID), groups them into phases with
+   nested subtasks, sorted by numeric prefix, and computes:
    - `currentPhase` / `currentSubtask` — the **first non-done item**, i.e. the resume
      point. This is what makes `/implement` idempotent/resumable across sessions —
      call it again any time and it picks up exactly where it left off.
@@ -86,6 +131,9 @@ is what the command does — actual spec authoring is the skill's job (see
    separation: tests are run via `run_tests`/`/run-tests`, and the actual `git commit`
    is a manual step the human confirms (see root `AGENTS.md` commit discipline: "wait
    for input before doing anything else").
+
+Each subtask is implemented by a sequential **worker** subagent when the `subagent`
+tool is available; otherwise the main session does the work itself (skill fallback).
 
 ## State machine per task
 
@@ -104,7 +152,10 @@ conventions described above.
 
 ## See also
 
-- `skills/engineering/create-plan/SKILL.md`, `iterate-plan/SKILL.md`,
-  `implement-plan/SKILL.md` — the prose workflows these tools back.
+- `skills/engineering/create-plan/SKILL.md`, `feature-plan/SKILL.md`,
+  `iterate-plan/SKILL.md`, `implement-plan/SKILL.md` — the prose workflows these tools
+  back.
+- `README.md` "How Extensions and Skills Fit Together" — the full dependency map
+  (commands → skills → tools → subagents) and the rules of the road.
 - [Extension reference](../architecture/extensions.md#pi-planning-plan-tools--implement-plan)
   for source-line pointers.
