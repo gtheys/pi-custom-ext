@@ -76,7 +76,7 @@ Subagent panes are created without stealing keyboard focus (cmux, tmux). Launch 
 
 | Command                    | Description                          |
 | -------------------------- | ------------------------------------ |
-| `/plan`                    | Start a full planning workflow       |
+| `/plan`                    | Start a planning session — dispatches to create-plan (Jira ID) / feature-plan (free text) / bundled generic workflow |
 | `/iterate`                 | Fork into a subagent for quick fixes |
 | `/subagent <agent> <task>` | Spawn a named agent directly         |
 
@@ -237,11 +237,16 @@ await caller_ping({
 
 ## The `/plan` Workflow
 
-The `/plan` command orchestrates a full planning-to-implementation pipeline.
+The `/plan` command dispatches on the argument shape:
 
 ```
-/plan Add a dark mode toggle to the settings page
+/plan IMP-7070                        → create-plan skill (Jira/taskwarrior flow)
+/plan Add a dark mode toggle          → feature-plan skill (local feature flow)
+/plan Add a dark mode toggle          → bundled generic planner workflow
+     ^ in a standalone install (repo skills/ unavailable)
 ```
+
+The generic bundled workflow orchestrates a planning-to-implementation pipeline:
 
 ```
 Phase 1: Investigation    → Quick codebase scan

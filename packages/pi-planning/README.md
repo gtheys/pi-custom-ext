@@ -26,6 +26,7 @@ Typed tools for the `create-plan` and `iterate-plan` skills.
 | `tw_get_phases` | Fetch all phase tasks (`+phase` tag) for a Jira ticket |
 | `tw_get_impl_tasks` | Fetch all implementation tasks (`+impl` tag) for a Jira ticket |
 | `resolve_spec_path` | Compute canonical spec file path (respects `$LLM_NOTES_ROOT`) |
+| `resolve_feature_path` | Compute canonical plan.md path for a local feature (respects `$PERSONAL_FEATURES`, falls back to `.pi/plans/`) |
 | `tw_create_spec_task` | Create spec task in taskwarrior and annotate it with the spec file path |
 | `tw_create_phase` | Create a phase task; returns UUID for use as `depends_uuid` |
 | `tw_create_impl_task` | Create an implementation subtask under a phase |
@@ -33,7 +34,8 @@ Typed tools for the `create-plan` and `iterate-plan` skills.
 ### Command
 
 ```
-/plan <JIRA-ID>    — create or iterate on an implementation plan
+/plan <JIRA-ID>              — create or iterate on an implementation plan
+/plan <feature description>  — plan a local feature (feature-plan skill)
 ```
 
 ---
@@ -46,18 +48,19 @@ Typed tools for the `implement-plan` skill, driving work from the taskwarrior ph
 
 | Tool | Description |
 |------|-------------|
-| `tw_execution_plan` | Fetch full sorted phase + subtask tree; returns `currentPhase`/`currentSubtask` resume pointers |
+| `tw_execution_plan` | Fetch full sorted phase + subtask tree (by `jira_id` or local-feature `feature_uuid`); returns `currentPhase`/`currentSubtask` resume pointers |
 | `tw_advance_task` | Transition a task to `todo`, `inprogress`, or `done` |
 | `tw_phase_checkpoint` | Mark phase done and return a ready-made git commit message |
 
 ### Command
 
 ```
-/implement <JIRA-ID>    — show execution plan and start implementing
+/implement <JIRA-ID>       — show execution plan and start implementing
+/implement <feature-uuid>  — same, for a local feature tree
 ```
 
 ---
 
 ## Usage
 
-Tools are registered automatically and consumed by the bundled skills. See the [create-plan](../../skills/engineering/create-plan/SKILL.md) and [implement-plan](../../skills/engineering/implement-plan/SKILL.md) skills for workflows.
+Tools are registered automatically and consumed by the bundled skills. See the [create-plan](../../skills/engineering/create-plan/SKILL.md), [feature-plan](../../skills/engineering/feature-plan/SKILL.md), and [implement-plan](../../skills/engineering/implement-plan/SKILL.md) skills for workflows.

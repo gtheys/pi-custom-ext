@@ -212,11 +212,11 @@ Keep packaging and docs in sync.
 
 #### Automated Verification
 
-- [ ] `npm pack --dry-run -w @gtheys/pi-planning` includes the new file
+- [x] `npm pack --dry-run -w @gtheys/pi-planning` includes the new file
 
 #### Manual Verification
 
-- [ ] README examples match actual tool signatures
+- [x] README examples match actual tool signatures
 
 ---
 
