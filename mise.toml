@@ -5,7 +5,7 @@ node = "24"
 [env]
 _.path = [
   # Keep the global Pi CLI ahead of any workspace shim.
-  "{{env.HOME}}/.local/share/mise/installs/npm-earendil-works-pi-coding-agent/latest/bin",
+  "{{env.HOME}}/.local/share/mise/installs/npm-earendil-works-pi-coding-agent/latest/node_modules/.bin",
   "{{config_root}}/node_modules/.bin",
 ]
 
