@@ -20,6 +20,10 @@
   },
   "files": [
     "index.ts",
+    "branch.ts",
+    "bootstrap.ts",
+    "herdr.ts",
+    "remove-guards.ts",
     "README.md"
   ],
   "pi": {

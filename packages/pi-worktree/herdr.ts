@@ -158,6 +158,32 @@ export async function worktreeList(
   return parseWorktrees(parsed)
 }
 
+/** Parse `herdr worktree create` stdout — pure, fixture-tested. */
+export function parseCreateResult(stdout: string): {
+  path: string
+  workspaceId: string
+} {
+  // AIDEV-NOTE: live shape captured on herdr 0.8.2 (smoke test 4.2):
+  // {result:{worktree:{path,branch,open_workspace_id,...},workspace:{...}}}.
+  // Flat fallback keys kept for tolerance.
+  const payload: unknown = extractResult(parseJson(stdout))
+  return {
+    path: pickString(payload, [
+      'worktree.path',
+      'path',
+      'worktree_path',
+      'checkout_path',
+    ]),
+    workspaceId: pickString(payload, [
+      'worktree.open_workspace_id',
+      'workspace_id',
+      'open_workspace_id',
+      'id',
+      'workspace.id',
+    ]),
+  }
+}
+
 export async function worktreeCreate(
   pi: ExtensionAPI,
   cwd: string,
@@ -174,23 +200,7 @@ export async function worktreeCreate(
       `herdr worktree create failed: ${result.stderr || result.stdout}`,
     )
   }
-  // AIDEV-NOTE: exact create payload shape unverified live (create is
-  // fire-and-miss from tests); tolerate absent fields with "" per plan.
-  const payload: unknown = extractResult(parseJson(result.stdout))
-  return {
-    path: pickString(payload, [
-      'path',
-      'worktree_path',
-      'checkout_path',
-      'workspace.path',
-    ]),
-    workspaceId: pickString(payload, [
-      'workspace_id',
-      'open_workspace_id',
-      'id',
-      'workspace.id',
-    ]),
-  }
+  return parseCreateResult(result.stdout)
 }
 
 export async function worktreeRemove(

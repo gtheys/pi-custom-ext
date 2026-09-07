@@ -116,6 +116,7 @@ test('personalBranch: each personal type', () => {
 // output captured live from herdr 0.8.2 — do not "fix" field names.
 import {
   filterLinked,
+  parseCreateResult,
   parseJson,
   parseWorktrees,
   pickString,
@@ -613,4 +614,39 @@ test('detectBootstrapPlan: go.mod + Cargo.toml, no JS lockfile → cargo fetch +
   assert.equal(plan.steps.length, 1)
   assert.equal(plan.steps[0].label, 'cargo fetch')
   assert.ok((plan.note ?? '').includes('go:'))
+})
+
+// AIDEV-NOTE: create fixture captured live from `herdr worktree create`
+// on herdr 0.8.2 (smoke test 4.2) — trimmed to load-bearing fields.
+test('parseCreateResult: real herdr 0.8.2 create payload', () => {
+  const stdout = JSON.stringify({
+    id: 'cli:worktree:create',
+    result: {
+      type: 'worktree_created',
+      workspace: {
+        workspace_id: 'w27',
+        label: 'wt-demo2',
+        worktree: {
+          checkout_path:
+            '/home/geert/.herdr/worktrees/pi-my-rifle-ext/wt-demo2',
+        },
+      },
+      worktree: {
+        branch: 'wt-demo2',
+        open_workspace_id: 'w27',
+        path: '/home/geert/.herdr/worktrees/pi-my-rifle-ext/wt-demo2',
+      },
+    },
+  })
+  assert.deepEqual(parseCreateResult(stdout), {
+    path: '/home/geert/.herdr/worktrees/pi-my-rifle-ext/wt-demo2',
+    workspaceId: 'w27',
+  })
+})
+
+test('parseCreateResult: non-JSON returns empty fields, never throws', () => {
+  assert.deepEqual(parseCreateResult('not json'), {
+    path: '',
+    workspaceId: '',
+  })
 })
