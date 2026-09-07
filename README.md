@@ -132,10 +132,10 @@ pi install git:github.com/DietrichGebert/ponytail
 | [`pi-sem`](packages/pi-sem/) | Semantic code analysis tools — entity-level diff, impact analysis, context lookup, and blame via `pi-sem` | Code Analysis |
 | [`pi-desktop-notify`](packages/pi-desktop-notify/) | `/notify` command — desktop notifications (notify-send) when pi finishes work after an idle period | Notifications |
 | [`pi-test-runner`](packages/pi-test-runner/) | `run_tests` tool + `/test-runner` command — runs JS/TS tests from `package.json` in an isolated pi-interactive-subagents worker; visible in the orchestrator's subagents widget; results injected back when done ⚠️ *experimental/WIP* | Testing |
-| [`pi-interactive-subagents`](packages/pi-interactive-subagents/) | `subagent` tool + `/plan` orchestration — spawn scout/worker/planner sub-agents in cmux/tmux/zellij/wezterm/herdr panes, with a live status widget and programmatic `launchSubagent`/`watchSubagent` API | Orchestration |
+| [`pi-interactive-subagents`](packages/pi-interactive-subagents/) | `subagent` tool + `/plan` dispatch command — spawn scout/worker/planner sub-agents in cmux/tmux/zellij/wezterm/herdr panes, with a live status widget and programmatic `launchSubagent`/`watchSubagent` API; `/plan` routes to the create-plan/feature-plan skills (bundled generic workflow as fallback) | Orchestration |
 | [`pi-fastcontext`](packages/pi-fastcontext/) | `fast_context_search` tool + `/fastcontext` command — fast read-only codebase search via local Microsoft FastContext (llama.cpp); returns compact `file:line` citations | Code Search |
-| [`pi-planning`](packages/pi-planning/) (plan-tools) | `/plan` command + taskwarrior tools (`tw_get_ticket`, `tw_get_spec_task`, `tw_get_phases`, `tw_get_impl_tasks`, `resolve_spec_path`, `tw_create_spec_task`, `tw_create_phase`, `tw_create_impl_task`) for spec/plan creation | Planning |
-| [`pi-planning`](packages/pi-planning/) (implement-plan) | `/implement` command + taskwarrior tools (`tw_execution_plan`, `tw_advance_task`, `tw_phase_checkpoint`) for driving implementation from a spec | Planning |
+| [`pi-planning`](packages/pi-planning/) (plan-tools) | Taskwarrior tools for spec/plan creation (`tw_get_ticket`, `tw_get_spec_task`, `tw_get_phases`, `tw_get_impl_tasks`, `resolve_spec_path`, `resolve_feature_path`, `tw_create_spec_task`, `tw_create_phase`, `tw_create_impl_task`, `jira_create_branch`) | Planning |
+| [`pi-planning`](packages/pi-planning/) (implement-plan) | `/implement` command + taskwarrior tools (`tw_execution_plan` — by Jira ID **or** feature UUID, `tw_advance_task`, `tw_phase_checkpoint`) for driving implementation from a spec or feature tree | Planning |
 | [`pi-teams-transcript`](packages/pi-teams-transcript/) | `teams_transcript` tool — list/download Microsoft Teams meeting transcripts via Microsoft Graph (app-only auth) ⚠️ *work in progress* | Integrations |
 | [`pi-pr-digest`](packages/pi-pr-digest/) | `pr_digest` tool + `/pr-digest` command — outstanding GitHub PRs in an org with human comment/review status (bots filtered) and reviewer-request table | Integrations |
 
@@ -160,11 +160,12 @@ These complementary pi packages are **not** part of this repo. Install them with
 | Skill | Description |
 |-------|-------------|
 | `coding-standards` | Universal coding standards, best practices, and patterns for TypeScript, JavaScript, React, and Node.js development |
-| `create-plan` | Create detailed implementation plans from Jira tickets via taskwarrior; codebase research runs in parallel `scout` subagents |
+| `create-plan` | Create detailed implementation plans from Jira tickets via taskwarrior; codebase research runs in parallel `scout` subagents; local features delegate to `feature-plan` |
 | `debug` | Bootstrap a debugging session — investigates pod logs, DB state, and git history without editing files |
+| `feature-plan` | Plan a local feature (no Jira) end to end — interview, scout subagents, interactive planner agent, `plan.md` artifact under `$PERSONAL_FEATURES`, and a taskwarrior feature hierarchy (`jirastatus:Local`) |
 | `feature-ticket` | Interview-driven feature ticket creation for personal projects; records as Taskwarrior ticket |
 | `gh-unresolved-comments` | Fetch unresolved PR review comments, classify as VALID/INVALID, auto-resolve stale threads, produce resolution plan |
-| `implement-plan` | Execute an approved implementation spec from the taskwarrior phase/subtask tree; each subtask is implemented by a sequential `worker` subagent |
+| `implement-plan` | Execute an approved implementation spec from the taskwarrior phase/subtask tree (Jira ID or feature UUID); each subtask is implemented by a sequential `worker` subagent |
 | `iterate-plan` | Iterate on existing implementation specs with thorough research and updates |
 | `notes-locator` | Discover relevant documents in `notes/` or `$LLM_NOTES_ROOT` for a given topic or task |
 | `pr-description` | Generate comprehensive PR descriptions following repository templates |
@@ -184,6 +185,62 @@ These complementary pi packages are **not** part of this repo. Install them with
 | `qmd` | Search local markdown knowledge bases, notes, docs, and wikis with QMD |
 | `sem` | Entity-aware code change analysis via pi-sem tools — diff, impact, context, blame, history |
 | `worktrunk` | `wt` CLI for git worktree workflows — switching, creating, merging, hooks, LLM commit generation |
+
+---
+
+## How Extensions and Skills Fit Together
+
+The planning stack spans two packages and five skills. Extensions own the
+**tools and commands** (TypeScript, registered via `pi.extensions`); skills own
+the **workflows** (markdown, loaded from `skills/`). Skills have no code — every
+tool they name must be registered by a loaded extension, and every command
+they depend on must be registered by exactly one package.
+
+### Dependency map
+
+```
+/plan command (pi-interactive-subagents)
+    ├─ arg matches JIRA ID ──> injects create-plan skill
+    ├─ free text ───────────> injects feature-plan skill
+    └─ skills/ unreadable ──> bundled generic plan-skill.md (standalone installs)
+
+create-plan ──uses──> tw_get_ticket, tw_get_spec_task, tw_get_phases,
+    │                 tw_get_impl_tasks, resolve_spec_path,
+    │                 tw_create_spec_task, tw_create_phase,
+    │                 tw_create_impl_task, jira_create_branch   (pi-planning)
+    ├─uses──> scout subagents                                (pi-interactive-subagents)
+    └─for local features──> delegates to feature-plan
+
+feature-plan ──uses──> resolve_feature_path, tw_execution_plan (pi-planning)
+    ├─uses──> scout + planner subagents                      (pi-interactive-subagents)
+    └─writes──> taskwarrior hierarchy + plan.md ($PERSONAL_FEATURES or .pi/plans)
+
+iterate-plan ──uses──> same tool set as create-plan
+
+implement-plan ──uses──> tw_execution_plan (jira_id or feature_uuid),
+    │                     tw_advance_task, tw_phase_checkpoint (pi-planning)
+    └─uses──> worker subagents                               (pi-interactive-subagents)
+
+/implement command (pi-planning implement-plan/index.ts)
+    └─ pre-populates the execution plan for the implement-plan skill
+
+feature-ticket ──uses──> raw `task` CLI only (no extension dependency)
+```
+
+### Rules of the road
+
+| Rule | Detail |
+|------|--------|
+| Commands belong to exactly one package | Both `pi-interactive-subagents` and `pi-planning` register `/plan`; the **first registration wins** (load order = root `package.json` `pi.extensions`). `pi-planning`'s `/plan` is effectively dead — kept only because standalone npm installs of `pi-planning` load it without the subagents package. |
+| Skills degrade gracefully | `create-plan`/`feature-plan`/`implement-plan` all document a fallback when the `subagent` tool is missing (no multiplexer): research/implementing happens in the main session instead of scout/worker panes. |
+| Tool names are contracts | A skill referencing `tw_execution_plan` breaks if `pi-planning` is not loaded — pi reports the tool as unavailable and the skill's fallback path takes over. |
+| Agents are package data | `scout`/`worker`/`planner`/`reviewer` definitions live in `pi-interactive-subagents/agents/` and resolve project-local `.pi/agents/` first, then `~/.pi/agent/agents/`, then the bundled copy. |
+| Dispatch has a fallback | `/plan` with free text in a standalone install (no `skills/` dir) falls back to the bundled generic planner workflow — feature-planning without taskwarrior. |
+
+### Data contracts
+
+- **Jira flow**: spec path from `resolve_spec_path` (`$LLM_NOTES_ROOT/<repo>/notes/specs/<JIRA>__<slug>.md`), annotated as `Spec(repo=<repo>): <path>` on the spec task; hierarchy under `SalaryHero.<project>` via `tw_create_*` tools.
+- **Feature flow**: plan.md from `resolve_feature_path` (`$PERSONAL_FEATURES/<repo>/<date>-<slug>/plan.md`, or `.pi/plans/` fallback), annotated on the feature task; hierarchy via raw `task` CLI with `jirastatus:Local`, `+feature`/`+phase`/`+impl` tags, `N.`/`N.M` description prefixes (the execution plan sorts by them).
 
 ---
 
