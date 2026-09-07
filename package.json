@@ -36,7 +36,8 @@
       "./packages/pi-tool-pills/index.ts",
       "./packages/pi-desktop-notify/index.ts",
       "./packages/pi-teams-transcript/index.ts",
-      "./packages/pi-pr-digest/index.ts"
+      "./packages/pi-pr-digest/index.ts",
+      "./packages/pi-worktree/index.ts"
     ],
     "skills": [
       "./skills"

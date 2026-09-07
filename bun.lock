@@ -5,28 +5,28 @@
     "": {
       "name": "pi-my-rifle-ext",
       "dependencies": {
-        "@gtheys/pi-per-commit-spend": "latest",
-        "@mariozechner/pi-coding-agent": "npm:@earendil-works/pi-coding-agent@latest",
-        "@mariozechner/pi-tui": "npm:@earendil-works/pi-tui@latest",
-        "@shikijs/cli": "latest",
-        "@sting8k/pi-vcc": "latest",
-        "@tomooshi/caveman-milk-pi": "latest",
-        "@tomooshi/condensed-milk-pi": "latest",
-        "diff": "latest",
-        "graphify-pi": "latest",
-        "pi-intercom": "latest",
-        "pi-session-switch": "latest",
-        "shiki": "latest",
+        "@gtheys/pi-per-commit-spend": "^0.2.6",
+        "@mariozechner/pi-coding-agent": "npm:@earendil-works/pi-coding-agent@^0.85.1",
+        "@mariozechner/pi-tui": "npm:@earendil-works/pi-tui@^0.85.1",
+        "@shikijs/cli": "^4.4.3",
+        "@sting8k/pi-vcc": "^0.7.2",
+        "@tomooshi/caveman-milk-pi": "^0.2.0",
+        "@tomooshi/condensed-milk-pi": "^1.9.0",
+        "diff": "^9.0.0",
+        "graphify-pi": "^0.3.0",
+        "pi-intercom": "^0.13.0",
+        "pi-session-switch": "^0.4.0",
+        "shiki": "^4.4.3",
       },
       "devDependencies": {
-        "@biomejs/biome": "latest",
-        "@earendil-works/pi-agent-core": "latest",
-        "@earendil-works/pi-coding-agent": "latest",
-        "@earendil-works/pi-tui": "latest",
-        "@types/diff": "latest",
-        "bun-types": "latest",
-        "lefthook": "latest",
-        "typescript": "latest",
+        "@biomejs/biome": "2.5.12",
+        "@earendil-works/pi-agent-core": "^0.85.1",
+        "@earendil-works/pi-coding-agent": "^0.85.1",
+        "@earendil-works/pi-tui": "^0.85.1",
+        "@types/diff": "^8.0.0",
+        "bun-types": "^1.4.2",
+        "lefthook": "2.1.12",
+        "typescript": "7.0.2",
       },
     },
     "packages/pi-ask-user-question": {
@@ -158,6 +158,17 @@
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": "*",
         "@earendil-works/pi-tui": "*",
+      },
+    },
+    "packages/pi-worktree": {
+      "name": "@gtheys/pi-worktree",
+      "version": "0.1.0",
+      "dependencies": {
+        "@gtheys/pi-planning": "^0.1.1",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+        "typebox": "*",
       },
     },
   },
@@ -329,6 +340,8 @@
     "@gtheys/pi-test-runner": ["@gtheys/pi-test-runner@workspace:packages/pi-test-runner"],
 
     "@gtheys/pi-tool-pills": ["@gtheys/pi-tool-pills@workspace:packages/pi-tool-pills"],
+
+    "@gtheys/pi-worktree": ["@gtheys/pi-worktree@workspace:packages/pi-worktree"],
 
     "@mariozechner/clipboard": ["@mariozechner/clipboard@0.3.9", "", { "optionalDependencies": { "@mariozechner/clipboard-darwin-arm64": "0.3.9", "@mariozechner/clipboard-darwin-universal": "0.3.9", "@mariozechner/clipboard-darwin-x64": "0.3.9", "@mariozechner/clipboard-linux-arm64-gnu": "0.3.9", "@mariozechner/clipboard-linux-arm64-musl": "0.3.9", "@mariozechner/clipboard-linux-riscv64-gnu": "0.3.9", "@mariozechner/clipboard-linux-x64-gnu": "0.3.9", "@mariozechner/clipboard-linux-x64-musl": "0.3.9", "@mariozechner/clipboard-win32-arm64-msvc": "0.3.9", "@mariozechner/clipboard-win32-x64-msvc": "0.3.9" } }, "sha512-ABnA53mdfkGZwOFUdZNv2S0CWGO/EIuPj8Vv9xmBFmSYg/qFc7ihO6q5FcQjvoE67kZpWkEc4AhD6B/os04yuA=="],
 
