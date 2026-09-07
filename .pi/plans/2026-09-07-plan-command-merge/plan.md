@@ -174,6 +174,8 @@ The feature flow becomes a first-class skill; create-plan and implement-plan upd
 **File**: `skills/engineering/implement-plan/SKILL.md`
 **Changes**: Add feature-variant entry: resume via `tw_execution_plan` with `feature_uuid` (found through `task +feature jirastatus:Local status:pending` list or the annotated path), worker loop unchanged, `tw_phase_checkpoint` called with `jira_id: "FEATURE-<uuid8>"`. Skip `jira_create_branch` for features — plain branch naming.
 
+**Trivial-subtask escape hatch** (applies to both Jira and feature flows): a subtask touching ≤2 lines with no logic change (typo fix, README line, constant) may be implemented inline in the main session instead of spawning a worker — same steps otherwise (advance inprogress, edit, run tests if applicable, tick spec box, advance done). Judgment call: when in doubt, spawn the worker.
+
 ### Success Criteria
 
 #### Automated Verification
