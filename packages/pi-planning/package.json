@@ -6,6 +6,9 @@
   "keywords": [
     "pi-package"
   ],
+  "scripts": {
+    "test": "node --test test/test.ts"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",

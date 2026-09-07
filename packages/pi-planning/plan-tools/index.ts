@@ -28,6 +28,7 @@ import { registerGetPhasesAndImplTasks } from './get-phases-impl.ts'
 import { registerTwGetSpecTask } from './get-spec-task.ts'
 import { registerTwGetTicket } from './get-ticket.ts'
 import { extractSpecPath, getRepoName } from './helpers.ts'
+import { registerResolveFeaturePath } from './resolve-feature-path.ts'
 import { registerResolveSpecPath } from './resolve-spec-path.ts'
 
 export default function (pi: ExtensionAPI) {
@@ -35,6 +36,7 @@ export default function (pi: ExtensionAPI) {
   registerTwGetSpecTask(pi)
   registerGetPhasesAndImplTasks(pi)
   registerResolveSpecPath(pi)
+  registerResolveFeaturePath(pi)
   registerTwCreateSpecTask(pi)
   registerTwCreatePhase(pi)
   registerTwCreateImplTask(pi)

@@ -132,14 +132,14 @@ Register in `packages/pi-planning/plan-tools/index.ts`.
 
 #### Automated Verification
 
-- [ ] `node --test` passes in pi-planning
-- [ ] `bun run lint` passes
+- [x] `node --test` passes in pi-planning
+- [x] `bun run lint` passes
 
 #### Manual Verification
 
-- [ ] `tw_execution_plan` with a feature UUID returns sorted tree + resume target
-- [ ] Feature tasks visible via `task jirastatus:Local +feature`
-- [ ] `resolve_feature_path` honors `$PERSONAL_FEATURES` when set
+- [x] `tw_execution_plan` with a feature UUID returns sorted tree + resume target
+- [x] Feature tasks visible via `task jirastatus:Local +feature`
+- [x] `resolve_feature_path` honors `$PERSONAL_FEATURES` when set
 
 **Implementation Note**: Pause for manual confirmation after automated checks pass.
 
