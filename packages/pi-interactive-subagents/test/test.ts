@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -2804,6 +2805,40 @@ describe('cmux.ts', () => {
     it('returns boolean based on WEZTERM_UNIX_SOCKET', () => {
       const result = isWezTermAvailable()
       assert.equal(typeof result, 'boolean')
+    })
+  })
+})
+
+describe('plan dispatch', () => {
+  describe('classifyPlanArg', () => {
+    it('classifies uppercase Jira IDs', () => {
+      assert.equal(subagentsModule.classifyPlanArg('IMP-7070'), 'jira')
+      assert.equal(subagentsModule.classifyPlanArg('DP-92 fix login'), 'jira')
+    })
+
+    it('classifies free text as feature', () => {
+      assert.equal(subagentsModule.classifyPlanArg('add dark mode'), 'feature')
+      assert.equal(subagentsModule.classifyPlanArg('implement x'), 'feature')
+    })
+
+    it('treats lowercase ids as feature (regex is uppercase-only)', () => {
+      assert.equal(subagentsModule.classifyPlanArg('imp-7070'), 'feature')
+    })
+  })
+
+  describe('readPlanSkill', () => {
+    it('resolves an existing skill file with content', () => {
+      const r = subagentsModule.readPlanSkill('create-plan')
+      assert.ok(r)
+      assert.ok(existsSync(r.path))
+      assert.ok(r.content.startsWith('---'))
+    })
+
+    it('returns null for a nonexistent skill', () => {
+      assert.equal(
+        subagentsModule.readPlanSkill('definitely-not-a-skill'),
+        null,
+      )
     })
   })
 })

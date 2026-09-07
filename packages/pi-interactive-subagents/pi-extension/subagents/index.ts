@@ -60,6 +60,34 @@ import {
 /** Absolute path to `pi-extension/subagents`. https://github.com/nodejs/node/issues/37845 */
 const SUBAGENTS_DIR = dirname(fileURLToPath(import.meta.url))
 
+const JIRA_ID_RE = /^[A-Z][A-Z0-9]+-\d+\b/
+
+// AIDEV-NOTE: /plan dispatch — Jira-shaped args run the create-plan skill
+// (taskwarrior/spec flow), anything else runs feature-plan. When the repo
+// skills directory is unavailable (standalone npm install, file read fails)
+// the handler falls back to the bundled generic plan-skill.md.
+export function classifyPlanArg(task: string): 'jira' | 'feature' {
+  if (JIRA_ID_RE.test(task)) {
+    return 'jira'
+  }
+  return 'feature'
+}
+
+export function readPlanSkill(
+  name: string,
+): { path: string; content: string } | null {
+  const p = join(
+    SUBAGENTS_DIR,
+    '../../../../skills/engineering',
+    `${name}/SKILL.md`,
+  )
+  try {
+    return { path: p, content: readFileSync(p, 'utf8') }
+  } catch {
+    return null
+  }
+}
+
 // Survive /reload: clear timers and abort poll loops from the previous module load.
 // /reload re-imports this file, giving fresh module-level state, but closures from
 // the old module keep running. See https://github.com/HazAT/pi-interactive-subagents/issues/5
@@ -2440,11 +2468,15 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 
   // /plan command — start the full planning workflow
   pi.registerCommand('plan', {
-    description: 'Start a planning session: /plan <what to build>',
+    description:
+      'Start a planning session: /plan <JIRA-ID or feature description>',
     handler: async (args, ctx) => {
       const task = args.trim()
       if (!task) {
-        ctx.ui.notify('Usage: /plan <what to build>', 'warning')
+        ctx.ui.notify(
+          'Usage: /plan <JIRA-ID or feature description>',
+          'warning',
+        )
         return
       }
 
@@ -2459,7 +2491,22 @@ export default function subagentsExtension(pi: ExtensionAPI) {
         }
       }
 
-      // Load the plan skill from the subagents extension directory
+      // AIDEV-NOTE: dispatch on argument shape — Jira ID injects create-plan,
+      // free text injects feature-plan; both fall back to the bundled
+      // plan-skill.md when the repo skill files cannot be read (standalone
+      // npm install).
+      const skillName =
+        classifyPlanArg(task) === 'jira' ? 'create-plan' : 'feature-plan'
+      const skill = readPlanSkill(skillName)
+      if (skill) {
+        const skillContent = skill.content.replace(/^---\n[\s\S]*?\n---\n*/, '')
+        pi.sendUserMessage(
+          `<skill name="${skillName}" location="${skill.path}">\n${skillContent.trim()}\n</skill>\n\n${task}`,
+        )
+        return
+      }
+
+      // Fallback: bundled generic plan skill
       const planSkillPath = join(SUBAGENTS_DIR, 'plan-skill.md')
       let content = readFileSync(planSkillPath, 'utf8')
       content = content.replace(/^---\n[\s\S]*?\n---\n*/, '')

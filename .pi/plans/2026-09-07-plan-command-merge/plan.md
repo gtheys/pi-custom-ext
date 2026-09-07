@@ -88,8 +88,8 @@ try {
 
 #### Automated Verification
 
-- [ ] `bun run lint` passes
-- [ ] `node --test test/test.ts` passes in pi-interactive-subagents
+- [x] `bun run lint` passes
+- [x] `node --test test/test.ts` passes in pi-interactive-subagents
 
 #### Manual Verification
 
