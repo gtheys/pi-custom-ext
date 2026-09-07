@@ -14,6 +14,7 @@ export interface HerdrWorktree {
   branch: string
   label: string
   workspaceId: string
+  isLinked: boolean
 }
 
 export interface HerdrAgent {
@@ -63,6 +64,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
+/**
+ * AIDEV-NOTE: is_linked_worktree defaults to TRUE when absent — herdr
+ * 0.8.2 always emits it, but if a future herdr drops the field the
+ * dashboard should still list worktrees (someone created them via this
+ * tool) rather than silently hiding everything. Explicit false (the main
+ * checkout row) is the only thing filtered out.
+ */
+function pickLinked(entry: unknown): boolean {
+  if (isRecord(entry) && entry.is_linked_worktree === false) {
+    return false
+  }
+  return true
+}
+
+/** Keep only linked worktrees (drops the main checkout row). */
+export function filterLinked(worktrees: HerdrWorktree[]): HerdrWorktree[] {
+  return worktrees.filter((wt) => wt.isLinked)
+}
+
 function extractResult(root: unknown): unknown {
   if (isRecord(root) && isRecord(root.result)) {
     return root.result
@@ -100,6 +120,25 @@ export async function herdrAvailable(
   return { ok: false, error: `herdr preflight failed: ${detail}` }
 }
 
+/** Map a parsed `herdr worktree list` payload onto HerdrWorktree[]. */
+export function parseWorktrees(root: unknown): HerdrWorktree[] {
+  // AIDEV-NOTE: herdr 0.8.2 emits {result:{worktrees:[{branch,path,label,
+  // open_workspace_id,is_linked_worktree,...}]}}. Variants tolerated:
+  // workspace_id, id, and nested workspace.id for the workspace key.
+  return pickArray(root, 'worktrees').map((entry) => ({
+    path: pickString(entry, ['path', 'worktree_path', 'checkout_path']),
+    branch: pickString(entry, ['branch', 'head', 'ref']),
+    label: pickString(entry, ['label', 'name']),
+    workspaceId: pickString(entry, [
+      'open_workspace_id',
+      'workspace_id',
+      'id',
+      'workspace.id',
+    ]),
+    isLinked: pickLinked(entry),
+  }))
+}
+
 export async function worktreeList(
   pi: ExtensionAPI,
   cwd: string,
@@ -116,20 +155,7 @@ export async function worktreeList(
       `herdr worktree list returned non-JSON: ${result.stdout.slice(-200)}`,
     )
   }
-  // AIDEV-NOTE: herdr 0.8.2 emits {result:{worktrees:[{branch,path,label,
-  // open_workspace_id,...}]}}. Variants tolerated: workspace_id, id, and
-  // nested workspace.id for the workspace key.
-  return pickArray(parsed, 'worktrees').map((entry) => ({
-    path: pickString(entry, ['path', 'worktree_path', 'checkout_path']),
-    branch: pickString(entry, ['branch', 'head', 'ref']),
-    label: pickString(entry, ['label', 'name']),
-    workspaceId: pickString(entry, [
-      'open_workspace_id',
-      'workspace_id',
-      'id',
-      'workspace.id',
-    ]),
-  }))
+  return parseWorktrees(parsed)
 }
 
 export async function worktreeCreate(

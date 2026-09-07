@@ -114,7 +114,12 @@ test('personalBranch: each personal type', () => {
 
 // AIDEV-NOTE: fixtures mirror `herdr worktree list` / `herdr agent list`
 // output captured live from herdr 0.8.2 — do not "fix" field names.
-import { parseJson, pickString } from '../herdr.ts'
+import {
+  filterLinked,
+  parseJson,
+  parseWorktrees,
+  pickString,
+} from '../herdr.ts'
 
 test('parseJson: valid JSON parses, non-JSON returns null', () => {
   assert.equal(parseJson('{"a":1}') !== null, true)
@@ -163,6 +168,33 @@ test('pickString: missing everywhere returns empty string', () => {
   assert.equal(pickString({}, ['path', 'worktree_path']), '')
   assert.equal(pickString(null, ['path']), '')
   assert.equal(pickString('str', ['path']), '')
+})
+
+test('parseWorktrees + filterLinked: main checkout filtered, linked kept', () => {
+  // AIDEV-NOTE: fixture mirrors live herdr 0.8.2 list payload — main
+  // checkout carries is_linked_worktree:false and must not be listed.
+  const payload = JSON.parse(
+    `{"result":{"worktrees":[
+      {"branch":"main","is_bare":false,"is_linked_worktree":false,"label":"sh-projects","open_workspace_id":"w1N","path":"/repo"},
+      {"branch":"feature/x","is_bare":false,"is_linked_worktree":true,"label":"fx","open_workspace_id":"w2A","path":"/repo/.wt/fx"}
+    ]}}`,
+  )
+  const worktrees = parseWorktrees(payload)
+  assert.equal(worktrees.length, 2)
+  assert.equal(worktrees[0].isLinked, false)
+  assert.equal(worktrees[1].isLinked, true)
+  const linked = filterLinked(worktrees)
+  assert.equal(linked.length, 1)
+  assert.equal(linked[0].branch, 'feature/x')
+})
+
+test('parseWorktrees: absent is_linked_worktree defaults to linked', () => {
+  const payload = JSON.parse(
+    '{"result":{"worktrees":[{"branch":"main","path":"/repo","label":"l"}]}}',
+  )
+  const worktrees = parseWorktrees(payload)
+  assert.equal(worktrees[0].isLinked, true)
+  assert.equal(filterLinked(worktrees).length, 1)
 })
 
 // --- bootstrap.ts: detectBootstrapPlan ---
@@ -271,4 +303,314 @@ test('selectEnvFiles: non-.env files ignored (.environment excluded)', () => {
 test('selectEnvFiles: empty dirs', () => {
   assert.deepEqual(selectEnvFiles([], ['.env']), [])
   assert.deepEqual(selectEnvFiles([], []), [])
+})
+
+// --- decideBranchDelete: basics (full matrix in subtask 3.3) ---
+
+import { decideBranchDelete } from '../remove-guards.ts'
+
+test('decideBranchDelete: not requested skips', () => {
+  assert.deepEqual(
+    decideBranchDelete({
+      deleteBranchRequested: false,
+      prState: 'MERGED',
+      force: false,
+    }),
+    { action: 'skip', reason: 'delete_branch not requested' },
+  )
+})
+
+test('decideBranchDelete: MERGED deletes without force', () => {
+  assert.deepEqual(
+    decideBranchDelete({
+      deleteBranchRequested: true,
+      prState: 'MERGED',
+      force: false,
+    }),
+    { action: 'delete' },
+  )
+})
+
+test('decideBranchDelete: OPEN refuses without force', () => {
+  assert.deepEqual(
+    decideBranchDelete({
+      deleteBranchRequested: true,
+      prState: 'OPEN',
+      force: false,
+    }),
+    {
+      action: 'refuse',
+      reason: 'PR for branch is OPEN — refusing to delete an unmerged branch',
+    },
+  )
+})
+
+test('decideBranchDelete: NO_PR refuses unless force', () => {
+  assert.deepEqual(
+    decideBranchDelete({
+      deleteBranchRequested: true,
+      prState: 'NO_PR',
+      force: false,
+    }),
+    {
+      action: 'refuse',
+      reason: 'no PR found for branch — refusing to delete an unmerged branch',
+    },
+  )
+  assert.deepEqual(
+    decideBranchDelete({
+      deleteBranchRequested: true,
+      prState: 'NO_PR',
+      force: true,
+    }),
+    { action: 'delete' },
+  )
+})
+
+// --- decideBranchDelete: full matrix (subtask 3.3) ---
+// 5 prStates × deleteBranchRequested × force = 20 cases. Expected values
+// are literals; refusal rows also pin the reason substring.
+
+interface MatrixCase {
+  prState: 'MERGED' | 'OPEN' | 'CLOSED' | 'NO_PR' | 'GH_MISSING'
+  requested: boolean
+  force: boolean
+  action: 'delete' | 'refuse' | 'skip'
+  reasonSubstr: string
+}
+
+const DECIDE_MATRIX: MatrixCase[] = [
+  // deleteBranchRequested: false → always skip regardless of prState/force
+  {
+    prState: 'MERGED',
+    requested: false,
+    force: false,
+    action: 'skip',
+    reasonSubstr: 'delete_branch not requested',
+  },
+  {
+    prState: 'MERGED',
+    requested: false,
+    force: true,
+    action: 'skip',
+    reasonSubstr: 'delete_branch not requested',
+  },
+  {
+    prState: 'OPEN',
+    requested: false,
+    force: false,
+    action: 'skip',
+    reasonSubstr: 'delete_branch not requested',
+  },
+  {
+    prState: 'OPEN',
+    requested: false,
+    force: true,
+    action: 'skip',
+    reasonSubstr: 'delete_branch not requested',
+  },
+  {
+    prState: 'CLOSED',
+    requested: false,
+    force: false,
+    action: 'skip',
+    reasonSubstr: 'delete_branch not requested',
+  },
+  {
+    prState: 'CLOSED',
+    requested: false,
+    force: true,
+    action: 'skip',
+    reasonSubstr: 'delete_branch not requested',
+  },
+  {
+    prState: 'NO_PR',
+    requested: false,
+    force: false,
+    action: 'skip',
+    reasonSubstr: 'delete_branch not requested',
+  },
+  {
+    prState: 'NO_PR',
+    requested: false,
+    force: true,
+    action: 'skip',
+    reasonSubstr: 'delete_branch not requested',
+  },
+  {
+    prState: 'GH_MISSING',
+    requested: false,
+    force: false,
+    action: 'skip',
+    reasonSubstr: 'delete_branch not requested',
+  },
+  {
+    prState: 'GH_MISSING',
+    requested: false,
+    force: true,
+    action: 'skip',
+    reasonSubstr: 'delete_branch not requested',
+  },
+  // deleteBranchRequested: true, force: false → only MERGED deletes
+  {
+    prState: 'MERGED',
+    requested: true,
+    force: false,
+    action: 'delete',
+    reasonSubstr: '',
+  },
+  {
+    prState: 'OPEN',
+    requested: true,
+    force: false,
+    action: 'refuse',
+    reasonSubstr: 'PR for branch is OPEN',
+  },
+  {
+    prState: 'CLOSED',
+    requested: true,
+    force: false,
+    action: 'refuse',
+    reasonSubstr: 'PR for branch is CLOSED',
+  },
+  {
+    prState: 'NO_PR',
+    requested: true,
+    force: false,
+    action: 'refuse',
+    reasonSubstr: 'no PR found for branch',
+  },
+  {
+    prState: 'GH_MISSING',
+    requested: true,
+    force: false,
+    action: 'refuse',
+    reasonSubstr: 'gh CLI unavailable',
+  },
+  // deleteBranchRequested: true, force: true → force overrides everything
+  {
+    prState: 'MERGED',
+    requested: true,
+    force: true,
+    action: 'delete',
+    reasonSubstr: '',
+  },
+  {
+    prState: 'OPEN',
+    requested: true,
+    force: true,
+    action: 'delete',
+    reasonSubstr: '',
+  },
+  {
+    prState: 'CLOSED',
+    requested: true,
+    force: true,
+    action: 'delete',
+    reasonSubstr: '',
+  },
+  {
+    prState: 'NO_PR',
+    requested: true,
+    force: true,
+    action: 'delete',
+    reasonSubstr: '',
+  },
+  {
+    prState: 'GH_MISSING',
+    requested: true,
+    force: true,
+    action: 'delete',
+    reasonSubstr: '',
+  },
+]
+
+for (const c of DECIDE_MATRIX) {
+  const forceLabel = c.force ? 'force' : 'no force'
+  test(`decideBranchDelete matrix: ${c.prState} + ${c.requested ? 'requested' : 'not requested'} + ${forceLabel} → ${c.action}`, () => {
+    const decision = decideBranchDelete({
+      deleteBranchRequested: c.requested,
+      prState: c.prState,
+      force: c.force,
+    })
+    assert.equal(decision.action, c.action)
+    if (decision.action === 'refuse' || decision.action === 'skip') {
+      assert.ok(
+        decision.reason.includes(c.reasonSubstr),
+        `reason "${decision.reason}" should contain "${c.reasonSubstr}"`,
+      )
+    }
+  })
+}
+
+// --- selectEnvFiles: edge matrix (subtask 3.3) ---
+
+test('selectEnvFiles: .env source-only → included', () => {
+  assert.deepEqual(selectEnvFiles(['.env', 'README.md'], []), ['.env'])
+})
+
+test('selectEnvFiles: .env in both → excluded (never overwritten)', () => {
+  assert.deepEqual(selectEnvFiles(['.env', '.env.local'], ['.env']), [
+    '.env.local',
+  ])
+})
+
+test('selectEnvFiles: .env.local source-only → included', () => {
+  assert.deepEqual(selectEnvFiles(['.env', '.env.local'], ['.env']), [
+    '.env.local',
+  ])
+})
+
+test('selectEnvFiles: .env.production in both → excluded', () => {
+  assert.deepEqual(
+    selectEnvFiles(['.env', '.env.production'], ['.env.production']),
+    ['.env'],
+  )
+})
+
+test('selectEnvFiles: .environment excluded — not a dotenv file', () => {
+  assert.deepEqual(selectEnvFiles(['.environment'], []), [])
+})
+
+// AIDEV-NOTE: '.env.example' starts with '.env.' so it IS copied —
+// documented behavior: example files get copied too (missing-only).
+test('selectEnvFiles: .env.example included — starts with .env. (documented behavior)', () => {
+  assert.deepEqual(selectEnvFiles(['.env.example'], []), ['.env.example'])
+})
+
+test('selectEnvFiles: empty source → nothing to copy', () => {
+  assert.deepEqual(selectEnvFiles([], ['.env', '.env.local']), [])
+})
+
+test('selectEnvFiles: empty target → all source .env* copied', () => {
+  assert.deepEqual(
+    selectEnvFiles(
+      ['.env', '.env.local', '.env.production', 'README.md', 'src'],
+      [],
+    ),
+    ['.env', '.env.local', '.env.production'],
+  )
+})
+
+test('selectEnvFiles: no .env files at all in either dir → empty', () => {
+  assert.deepEqual(
+    selectEnvFiles(['README.md', 'package.json', 'src'], ['README.md']),
+    [],
+  )
+})
+
+// --- detectBootstrapPlan: gap cases (subtask 3.3) ---
+
+test('detectBootstrapPlan: bun.lock + bun.lockb both present → single bun install, ambiguity noted', () => {
+  const plan = detectBootstrapPlan(['bun.lock', 'bun.lockb'])
+  assert.equal(plan.steps.length, 1)
+  assert.equal(plan.steps[0].label, 'bun install')
+  assert.ok((plan.note ?? '').includes('multiple JS lockfiles'))
+})
+
+test('detectBootstrapPlan: go.mod + Cargo.toml, no JS lockfile → cargo fetch + go note', () => {
+  const plan = detectBootstrapPlan(['go.mod', 'Cargo.toml'])
+  assert.equal(plan.steps.length, 1)
+  assert.equal(plan.steps[0].label, 'cargo fetch')
+  assert.ok((plan.note ?? '').includes('go:'))
 })
