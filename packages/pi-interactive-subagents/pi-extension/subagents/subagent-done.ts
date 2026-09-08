@@ -1,6 +1,6 @@
 /**
  * Extension loaded into sub-agents.
- * - Shows agent identity + available tools as a styled widget above the editor (toggle with Ctrl+J)
+ * - Shows agent identity + available tools as a styled widget above the editor (toggle with Alt+J)
  * - Provides a `subagent_done` tool for autonomous agents to self-terminate
  */
 
@@ -110,7 +110,7 @@ export default function (pi: ExtensionAPI) {
         if (expanded) {
           // Expanded: full tool list + denied
           const countInfo = theme.fg('dim', ` — ${toolNames.length} available`)
-          const hint = theme.fg('muted', '  (Ctrl+J to collapse)')
+          const hint = theme.fg('muted', '  (Alt+J to collapse)')
 
           const toolList = toolNames
             .map((name: string) => theme.fg('dim', name))
@@ -138,7 +138,7 @@ export default function (pi: ExtensionAPI) {
               ? theme.fg('dim', ' · ') +
                 theme.fg('error', `${denied.length} denied`)
               : ''
-          const hint = theme.fg('muted', '  (Ctrl+J to expand)')
+          const hint = theme.fg('muted', '  (Alt+J to expand)')
 
           const content = new Text(
             `${agentTag}${countInfo}${deniedInfo}${hint}`,
@@ -279,8 +279,8 @@ export default function (pi: ExtensionAPI) {
     recorder.sessionShutdown((event as any).reason)
   })
 
-  // Toggle expand/collapse with Ctrl+J
-  pi.registerShortcut('ctrl+j', {
+  // Toggle expand/collapse with Alt+J
+  pi.registerShortcut('alt+j', {
     description: 'Toggle subagent tools widget',
     handler: (ctx) => {
       expanded = !expanded
