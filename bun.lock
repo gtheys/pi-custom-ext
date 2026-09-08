@@ -123,6 +123,15 @@
         "typebox": "*",
       },
     },
+    "packages/pi-sudo": {
+      "name": "@gtheys/pi-sudo",
+      "version": "0.1.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
+        "@sinclair/typebox": "*",
+      },
+    },
     "packages/pi-teams-transcript": {
       "name": "@gtheys/pi-teams-transcript",
       "version": "0.1.0",
@@ -334,6 +343,8 @@
     "@gtheys/pi-review": ["@gtheys/pi-review@workspace:packages/pi-review"],
 
     "@gtheys/pi-sem": ["@gtheys/pi-sem@workspace:packages/pi-sem"],
+
+    "@gtheys/pi-sudo": ["@gtheys/pi-sudo@workspace:packages/pi-sudo"],
 
     "@gtheys/pi-teams-transcript": ["@gtheys/pi-teams-transcript@workspace:packages/pi-teams-transcript"],
 
