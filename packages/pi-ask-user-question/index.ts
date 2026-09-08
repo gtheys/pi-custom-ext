@@ -671,6 +671,74 @@ async function askMultiChoice(
   })
 }
 
+// AIDEV-NOTE: ctx.ui.custom() renders a full TUI component and only works
+// in mode === 'tui' (see pi-prompt-snippets for the same guard). In 'rpc'
+// mode hasUI is true but there's no terminal to drive custom(), so fall
+// back to the simple select()/input() dialogs, which have per-mode
+// implementations (see ExtensionUIContext docs).
+async function askSingleChoiceDialog(
+  ctx: ExtensionContext,
+  question: string,
+  context: string | undefined,
+  options: AskOption[],
+): Promise<AskAnswer | null> {
+  const title = context ? `${question}\n\n${context}` : question
+  const otherLabel = getOtherLabel(options)
+  const labels = [...options.map((o) => o.label), otherLabel]
+  const chosen = await ctx.ui.select(title, labels)
+  if (chosen == null) return null
+  if (chosen === otherLabel) {
+    const text = await ctx.ui.input(question, 'Type your answer...')
+    if (text == null) return null
+    const trimmed = text.trim()
+    return { type: 'other', label: trimmed, value: trimmed }
+  }
+  const index = options.findIndex((o) => o.label === chosen)
+  if (index === -1) return null
+  const option = options[index]
+  return {
+    type: 'option',
+    label: option.label,
+    value: option.value,
+    index: index + 1,
+  }
+}
+
+async function askMultiChoiceDialog(
+  ctx: ExtensionContext,
+  question: string,
+  context: string | undefined,
+  options: AskOption[],
+): Promise<AskAnswer[] | null> {
+  const title = context ? `${question}\n\n${context}` : question
+  const lines = options.map((o, i) => {
+    if (o.description) return `${i + 1}. ${o.label} — ${o.description}`
+    return `${i + 1}. ${o.label}`
+  })
+  const prompt = `${title}\n\n${lines.join('\n')}\n\nEnter option numbers separated by commas, or type a custom answer.`
+  const raw = await ctx.ui.input(prompt, 'e.g. 1,3')
+  if (raw == null) return null
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const indices = trimmed
+    .split(',')
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isInteger(n) && n >= 1 && n <= options.length)
+  if (indices.length > 0) {
+    const answers: AskAnswer[] = indices.map((n) => {
+      const option = options[n - 1]
+      return {
+        type: 'option',
+        label: option.label,
+        value: option.value,
+        index: n,
+      }
+    })
+    return sortAnswers(answers)
+  }
+  return [{ type: 'other', label: trimmed, value: trimmed }]
+}
+
 // AIDEV-NOTE: Shared UI mutex. ctx.ui.custom()/editor can only handle one
 // active call at a time, so ALL pop-up-style tools (ask_user_question, quiz,
 // ...) must serialize against each other, not just against themselves. One
@@ -771,25 +839,26 @@ export default function askUserQuestion(pi: ExtensionAPI) {
           ])
         }
 
+        const useDialogFallback = ctx.mode !== 'tui'
+
         if (mode === 'single-select') {
-          const answer = await askSingleChoice(
-            ctx,
-            params.question,
-            context,
-            options,
-          )
+          const answer = useDialogFallback
+            ? await askSingleChoiceDialog(
+                ctx,
+                params.question,
+                context,
+                options,
+              )
+            : await askSingleChoice(ctx, params.question, context, options)
           if (!answer) {
             return cancelledResult(params.question, mode, context)
           }
           return buildResult(params.question, context, mode, [answer])
         }
 
-        const answers = await askMultiChoice(
-          ctx,
-          params.question,
-          context,
-          options,
-        )
+        const answers = useDialogFallback
+          ? await askMultiChoiceDialog(ctx, params.question, context, options)
+          : await askMultiChoice(ctx, params.question, context, options)
         if (!answers) {
           return cancelledResult(params.question, mode, context)
         }
